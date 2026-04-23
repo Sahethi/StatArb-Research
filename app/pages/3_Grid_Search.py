@@ -163,7 +163,7 @@ if "grid_results" in st.session_state:
             yaxis_title="s_so",
             template="plotly_white",
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     with col2:
         st.subheader("Max Drawdown Heatmap")
@@ -179,10 +179,10 @@ if "grid_results" in st.session_state:
             yaxis_title="s_so",
             template="plotly_white",
         )
-        st.plotly_chart(fig2, use_container_width=True)
+        st.plotly_chart(fig2, width="stretch")
 
     st.subheader("Full Results Table")
     display_df = grid_df.copy()
     display_df["Max DD"] = display_df["Max DD"].map(lambda x: f"{x:.2%}" if pd.notna(x) else "N/A")
     display_df["Total Return"] = display_df["Total Return"].map(lambda x: f"{x:.2%}" if pd.notna(x) else "N/A")
-    st.dataframe(display_df, use_container_width=True)
+    st.dataframe(display_df, width="stretch")

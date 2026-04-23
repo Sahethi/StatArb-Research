@@ -222,6 +222,20 @@ def run_backtest(
     print(f"[run_backtest] first eligible trading index: {min_start} "
           f"(~ {str(dates[min_start])[:10] if min_start < len(dates) else 'beyond sample'})")
 
+    # Warn when PCA is over-parameterized for the universe size. The paper
+    # used N=1,417 with 15 components; at small N the higher eigenvectors
+    # fit correlation-matrix noise and the 60-day OLS residuals become
+    # fitting noise rather than true idiosyncratic returns.
+    if model_type in ("pca", "combined"):
+        m_cfg = config.factor.pca_n_components
+        if m_cfg is not None and nonempty > 0 and m_cfg > max(1, nonempty // 10):
+            print(
+                f"[run_backtest] WARNING: pca_n_components={m_cfg} is large "
+                f"relative to N={nonempty}. With N < ~10*m the 60-day OLS "
+                f"over-fits (R² → 1) and residuals become noise — signal "
+                f"will be unreliable. Try pca_n_components in {{1, 2, 3}}."
+            )
+
     # ── Portfolio ──
     portfolio = PortfolioManager(
         initial_equity=config.backtest.initial_equity,
@@ -237,10 +251,12 @@ def run_backtest(
     sscore_records: dict = {}
     daily_ou_params: dict = {}
 
-    # n_target: expected concurrently-open positions. Paper (§5.1) implies
-    # ~100; scale with universe but cap so per-position notional stays near
-    # the paper's ~2% of equity.
-    n_target = max(min(len(tickers) // 4, 50), 10)
+    # n_target: expected concurrently-open positions. Paper (§5.1) targets
+    # ~2% of equity per position → ~100 concurrent positions at 2+2 leverage.
+    # Scale with universe size so per-position notional stays near 2%; floor
+    # at 10 so tiny test universes still function, cap at 200 so very large
+    # universes don't produce unreasonably small per-name trades.
+    n_target = max(min(len(tickers) // 7, 200), 10)
     print(f"[run_backtest] n_target (position-sizing denominator) = {n_target}")
 
     # Pre-cache numpy arrays for speed.
@@ -498,8 +514,14 @@ def run_backtest(
                 date=date_ts,
             )
 
-        # ── Step 7: mark to market ──
+        # ── Step 7: mark to market (updates stale_days counters) ──
         portfolio.mark_to_market(price_dict)
+
+        # Force-close positions whose underlying has been dark for 10+ days
+        # so delisted names don't occupy leverage budget forever. Uses each
+        # position's last-known finite price to realize the close.
+        portfolio.purge_stale_positions(date_ts, stale_threshold=10)
+
         equity_values.append(portfolio.equity)
         equity_dates.append(date)
 

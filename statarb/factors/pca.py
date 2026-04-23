@@ -37,9 +37,15 @@ def compute_pca_eigenportfolio_returns(
         V: eigenvector matrix (N x m) -- top m eigenvectors.
         stds: 1-D array of per-stock std devs (N,) used in standardization.
     """
-    # Drop tickers with >20% NaN, then any remaining NaN rows.
+    # Drop tickers with >20% NaN coverage. For the remaining tickers any
+    # isolated NaN (one-off missing print, single-day halt) is filled with 0.
+    # The previous `.dropna(how="any")` collapsed the window whenever any
+    # surviving column had even one NaN — fine for 40 stable mega-caps but
+    # catastrophic for a 1,000+ universe where different names IPO / delist
+    # on different dates. Filling with 0 is unbiased for daily log-returns
+    # (mean ~= 0) and preserves the full 252-day window for PCA.
     min_obs = int(len(returns_window) * 0.80)
-    w = returns_window.dropna(axis=1, thresh=min_obs).dropna(how="any")
+    w = returns_window.dropna(axis=1, thresh=min_obs).fillna(0.0)
     if w.empty or w.shape[1] < 2:
         raise ValueError("PCA window has insufficient data")
 

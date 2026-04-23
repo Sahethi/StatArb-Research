@@ -35,7 +35,7 @@ st.caption("Avellaneda & Lee (2010) — PCA & ETF Mean-Reversion Strategies")
 config = build_sidebar()
 set_config(config)
 
-if st.sidebar.button("Run Backtest", type="primary", use_container_width=True):
+if st.sidebar.button("Run Backtest", type="primary", width="stretch"):
     with st.spinner("Fetching data..."):
         data_source = get_data_source(config.data_source)
 
@@ -137,17 +137,17 @@ if has_backtest_result():
     with col1:
         st.plotly_chart(
             plot_equity_curve(result.equity_curve),
-            use_container_width=True,
+            width="stretch",
         )
     with col2:
         st.plotly_chart(
             plot_drawdown(result.equity_curve),
-            use_container_width=True,
+            width="stretch",
         )
 
     st.plotly_chart(
         plot_gross_exposure(result.daily_positions, result.equity_curve),
-        use_container_width=True,
+        width="stretch",
     )
 
     st.subheader("Current S-Scores")
@@ -172,8 +172,8 @@ if has_backtest_result():
             return ""
 
         st.dataframe(
-            sscore_df.style.applymap(color_signal, subset=["Signal"]),
-            use_container_width=True,
+            sscore_df.style.map(color_signal, subset=["Signal"]),
+            width="stretch",
             height=400,
         )
 
@@ -189,7 +189,7 @@ if has_backtest_result():
                     plot_sscore_timeseries(
                         ticker_sscores, selected_ticker, config.signal
                     ),
-                    use_container_width=True,
+                    width="stretch",
                 )
 
             if not result.trades.empty:
@@ -198,7 +198,7 @@ if has_backtest_result():
                 ]
                 if not ticker_trades.empty:
                     st.write(f"**Trades for {selected_ticker}:**")
-                    st.dataframe(ticker_trades, use_container_width=True)
+                    st.dataframe(ticker_trades, width="stretch")
 
     st.subheader("Annual Performance")
     eq = result.equity_curve
@@ -209,6 +209,6 @@ if has_backtest_result():
             "Year": yearly_ret.index.year,
             "Return": [f"{r:.1%}" for r in yearly_ret.values],
         })
-        st.dataframe(ann_df, use_container_width=True)
+        st.dataframe(ann_df, width="stretch")
 else:
     st.info("Configure parameters in the sidebar and click **Run Backtest** to begin.")

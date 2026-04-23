@@ -31,7 +31,7 @@ if not factor_result.residuals.empty:
         corr = returns_for_corr.corr()
         st.plotly_chart(
             plot_correlation_heatmap(corr),
-            use_container_width=True,
+            width="stretch",
         )
 
 # ── Eigenvalue Spectrum (PCA only) ──
@@ -40,7 +40,7 @@ if "all_eigenvalues" in factor_result.metadata:
     eigenvalues = factor_result.metadata["all_eigenvalues"]
     st.plotly_chart(
         plot_eigenvalue_spectrum(eigenvalues),
-        use_container_width=True,
+        width="stretch",
     )
 
     n_components = factor_result.metadata.get("n_components", 0)
@@ -71,7 +71,7 @@ if not factor_result.betas.empty:
         height=max(400, len(betas) * 15),
         template="plotly_white",
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 # ── Eigenportfolio Cumulative Returns (Paper Fig. 2) ──
 st.subheader("Eigenportfolio Cumulative Returns (Paper Fig. 2)")
@@ -103,7 +103,7 @@ if not factor_result.factor_returns.empty:
             hovermode="x unified",
             template="plotly_white",
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
 # ── R-squared per Stock ──
 r_squared = factor_result.metadata.get("r_squared", {})
@@ -121,7 +121,7 @@ if r_squared:
         yaxis_title="R-squared",
         template="plotly_white",
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 # ── Residual Return Statistics ──
 st.subheader("Residual Return Statistics")
@@ -135,7 +135,7 @@ if not factor_result.residuals.empty:
         "Min": r.min().round(4),
         "Max": r.max().round(4),
     })
-    st.dataframe(stats_df, use_container_width=True)
+    st.dataframe(stats_df, width="stretch")
 
 # ── OU Parameters (Last Estimation) ──
 st.subheader("OU Parameters (Last Estimation)")
@@ -154,7 +154,7 @@ if daily_ou:
                 "m (equilibrium)": round(p.m, 5),
             })
         ou_df = pd.DataFrame(rows).sort_values("Half-life (days)")
-        st.dataframe(ou_df, use_container_width=True)
+        st.dataframe(ou_df, width="stretch")
 
 # ── Residual Analysis ──
 st.subheader("Residual Analysis")
@@ -174,7 +174,7 @@ if not factor_result.residuals.empty:
                 yaxis_title="Cumulative Return",
                 template="plotly_white",
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
         with col2:
             fig2 = go.Figure()
             for t in sel:
@@ -184,7 +184,7 @@ if not factor_result.residuals.empty:
                 barmode="overlay",
                 template="plotly_white",
             )
-            st.plotly_chart(fig2, use_container_width=True)
+            st.plotly_chart(fig2, width="stretch")
 
         st.subheader("Residual Autocorrelation (first 20 lags)")
         from statsmodels.tsa.stattools import acf
@@ -206,4 +206,4 @@ if not factor_result.residuals.empty:
             xaxis_title="Lag",
             yaxis_title="Autocorrelation",
         )
-        st.plotly_chart(acf_fig, use_container_width=True)
+        st.plotly_chart(acf_fig, width="stretch")

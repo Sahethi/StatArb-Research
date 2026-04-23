@@ -21,6 +21,8 @@ class Position:
     entry_price: float
     notional: float             # dollar amount invested
     quantity: float             # shares (can be fractional)
+    last_finite_price: float = 0.0  # most recent finite MTM price
+    stale_days: int = 0              # consecutive days with NaN price
 
 
 class PortfolioManager:
@@ -126,6 +128,7 @@ class PortfolioManager:
             entry_price=price,
             notional=notional,
             quantity=quantity,
+            last_finite_price=price,
         )
         self.positions[ticker] = pos
         return pos
@@ -195,6 +198,7 @@ class PortfolioManager:
             entry_price=hedge_price,
             notional=hedge_notional,
             quantity=qty,
+            last_finite_price=hedge_price,
         )
         self.hedge_positions[key] = pos
         return pos
@@ -223,25 +227,69 @@ class PortfolioManager:
         """
         Update equity with unrealized PnL from stock and hedge positions.
         Returns total daily unrealized PnL on stock leg (for diagnostics).
-        """
-        daily_pnl = 0.0
-        for ticker, pos in self.positions.items():
-            if ticker in prices and np.isfinite(prices[ticker]):
-                daily_pnl += pos.direction * pos.quantity * (
-                    prices[ticker] - pos.entry_price
-                )
 
-        unrealized_stocks = sum(
-            pos.direction * pos.quantity * (
-                prices.get(pos.ticker, pos.entry_price) - pos.entry_price
-            )
-            for pos in self.positions.values()
-        )
-        unrealized_hedges = sum(
-            pos.direction * pos.quantity * (
-                prices.get(pos.ticker, pos.entry_price) - pos.entry_price
-            )
-            for pos in self.hedge_positions.values()
-        )
+        `prices.get(ticker, entry_price)` is NOT safe: when a position's
+        ticker delists mid-backtest, `ticker` stays in the price dict with
+        value NaN, and `.get` returns that NaN instead of the fallback. One
+        NaN then poisons equity and all downstream accounting. We treat a
+        NaN price as "no new information" — mark the position at its entry
+        price, i.e. zero unrealized PnL for that leg today.
+        """
+        def _mark(pos: Position) -> float:
+            px = prices.get(pos.ticker)
+            if px is None or not np.isfinite(px):
+                pos.stale_days += 1
+                # No MTM update when price is missing — use the last known
+                # finite price so the position is marked at its last valid
+                # level rather than frozen at entry.
+                ref = pos.last_finite_price if pos.last_finite_price > 0 else pos.entry_price
+                return pos.direction * pos.quantity * (ref - pos.entry_price)
+            pos.last_finite_price = float(px)
+            pos.stale_days = 0
+            return pos.direction * pos.quantity * (px - pos.entry_price)
+
+        daily_pnl = sum(_mark(pos) for pos in self.positions.values())
+        unrealized_stocks = daily_pnl
+        unrealized_hedges = sum(_mark(pos) for pos in self.hedge_positions.values())
         self.equity = self.cash + unrealized_stocks + unrealized_hedges
         return daily_pnl
+
+    def purge_stale_positions(
+        self, date: pd.Timestamp, stale_threshold: int = 10
+    ) -> int:
+        """
+        Force-close any stock position whose price has been NaN for
+        `stale_threshold` consecutive days (delisting / prolonged halt).
+        Uses the last known finite price, so the close is realized at a
+        real level and the paired hedge is released. Returns the number
+        of positions closed.
+        """
+        to_close: list[str] = []
+        for ticker, pos in self.positions.items():
+            if pos.stale_days >= stale_threshold and pos.last_finite_price > 0:
+                to_close.append(ticker)
+        for ticker in to_close:
+            pos = self.positions[ticker]
+            px = pos.last_finite_price
+            pnl = pos.direction * pos.quantity * (px - pos.entry_price)
+            close_notional = abs(pos.quantity * px)
+            cost = compute_transaction_cost(close_notional, self.tc_bps)
+            self.cash -= cost
+            self.total_costs += cost
+            self.cash += pnl
+            self.equity += pnl - cost
+            del self.positions[ticker]
+        # Also release hedge positions whose paired stock has been purged.
+        for key in list(self.hedge_positions.keys()):
+            stock_ticker = key.split("::", 1)[0]
+            if stock_ticker in to_close:
+                hpos = self.hedge_positions[key]
+                hpx = hpos.last_finite_price if hpos.last_finite_price > 0 else hpos.entry_price
+                hpnl = hpos.direction * hpos.quantity * (hpx - hpos.entry_price)
+                hclose_notional = abs(hpos.quantity * hpx)
+                hcost = compute_transaction_cost(hclose_notional, self.tc_bps)
+                self.cash -= hcost
+                self.total_costs += hcost
+                self.cash += hpnl
+                del self.hedge_positions[key]
+        return len(to_close)
