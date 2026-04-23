@@ -99,7 +99,8 @@ class CRSPSource(DataSource):
         prices = prices[
             [t for t in tickers if t in prices.columns]
         ]
-        prices = prices.ffill().bfill().astype(float)
+        # Only forward-fill short gaps; leave pre-IPO / post-delisting days NaN.
+        prices = prices.ffill(limit=2).astype(float)
         return prices
 
     def fetch_volume(

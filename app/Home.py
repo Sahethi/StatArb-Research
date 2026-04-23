@@ -13,7 +13,7 @@ from statarb.factors.registry import build_factor_model
 from statarb.backtest.engine import run_backtest
 from app.state import (
     set_config, set_backtest_result, get_backtest_result, has_backtest_result,
-    set_prices, set_volume,
+    set_prices, set_volume, set_engine_inputs,
 )
 from app.components.sidebar import build_sidebar
 from app.components.kpi_cards import render_kpi_cards
@@ -59,20 +59,36 @@ if st.sidebar.button("Run Backtest", type="primary", use_container_width=True):
         factor_model = build_factor_model(config.factor, sector_mapping, pairs_cfg=config.pairs)
 
         kwargs = {}
-        if config.factor.model_type in ("etf", "combined"):
+        etf_returns_df = None
+        spy_returns_df = None
+
+        # The engine's paper-faithful signal path runs a fresh 60-day OLS
+        # per day, so it needs the factor-return frames directly — not just
+        # the pre-computed residuals from `factor_model.fit`. Fetch ETF and
+        # SPY returns whenever the hedge or the model needs them.
+        needs_etf = (
+            config.factor.model_type in ("etf", "combined")
+            or config.backtest.hedge_instrument == "sector_etf"
+        )
+        needs_spy = (
+            config.factor.model_type in ("combined", "pca")
+            or config.backtest.hedge_instrument == "SPY"
+        )
+
+        if needs_etf:
             etf_tickers = list(set(sector_mapping.values()))
             etf_prices = data_source.fetch_prices(
                 etf_tickers, config.start_date, config.end_date
             )
-            etf_returns = np.log(etf_prices / etf_prices.shift(1)).dropna(how="all")
-            kwargs["etf_returns"] = etf_returns
+            etf_returns_df = np.log(etf_prices / etf_prices.shift(1)).dropna(how="all")
+            kwargs["etf_returns"] = etf_returns_df
 
-        if config.factor.model_type == "combined":
+        if needs_spy:
             spy_prices = data_source.fetch_prices(
                 [MARKET_ETF], config.start_date, config.end_date
             )
-            spy_returns = np.log(spy_prices / spy_prices.shift(1)).dropna(how="all")
-            kwargs["spy_returns"] = spy_returns
+            spy_returns_df = np.log(spy_prices / spy_prices.shift(1)).dropna(how="all")
+            kwargs["spy_returns"] = spy_returns_df
 
         if config.factor.model_type == "pairs":
             kwargs["prices"] = prices
@@ -93,8 +109,18 @@ if st.sidebar.button("Run Backtest", type="primary", use_container_width=True):
             bt_prices = prices
             bt_volume = volume
 
-        result = run_backtest(config, bt_prices, bt_volume, factor_result)
+        result = run_backtest(
+            config,
+            bt_prices,
+            bt_volume,
+            factor_result,
+            returns=returns,
+            etf_returns=etf_returns_df,
+            spy_returns=spy_returns_df,
+            sector_mapping=sector_mapping,
+        )
         set_backtest_result(result)
+        set_engine_inputs(returns, etf_returns_df, spy_returns_df, sector_mapping)
 
     st.success(
         f"Backtest complete: {result.metrics.num_trades} trades, "

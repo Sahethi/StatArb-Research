@@ -47,6 +47,10 @@ class PortfolioManager:
         self.leverage_short = leverage_short
         self.tc_bps = tc_bps
         self.positions: dict[str, Position] = {}
+        # Hedge positions, keyed by "{stock_ticker}::{hedge_ticker}". Each
+        # stock trade opens an offsetting position in the hedge instrument
+        # (SPY for PCA, sector ETF for ETF model) sized beta * notional.
+        self.hedge_positions: dict[str, Position] = {}
         self.cash = initial_equity
         self.total_costs = 0.0
 
@@ -149,32 +153,95 @@ class PortfolioManager:
         del self.positions[ticker]
         return pnl
 
+    def open_hedge_slice(
+        self,
+        stock_ticker: str,
+        hedge_ticker: str,
+        stock_direction: int,
+        stock_notional: float,
+        beta: float,
+        hedge_price: float,
+        date: pd.Timestamp,
+    ) -> Position | None:
+        """
+        Open an offsetting hedge position sized to cancel the stock trade's
+        factor exposure. Signed notional = -stock_direction * beta * notional.
+        """
+        if (
+            hedge_ticker in (None, "none", "")
+            or hedge_price <= 0
+            or not np.isfinite(beta)
+        ):
+            return None
+        signed = -stock_direction * beta * stock_notional
+        hedge_notional = abs(signed)
+        if hedge_notional <= 0:
+            return None
+        hedge_direction = 1 if signed > 0 else -1
+
+        key = f"{stock_ticker}::{hedge_ticker}"
+        if key in self.hedge_positions:
+            return None
+
+        qty = hedge_notional / hedge_price
+        cost = compute_transaction_cost(hedge_notional, self.tc_bps)
+        self.cash -= cost
+        self.total_costs += cost
+
+        pos = Position(
+            ticker=hedge_ticker,
+            direction=hedge_direction,
+            entry_date=date,
+            entry_price=hedge_price,
+            notional=hedge_notional,
+            quantity=qty,
+        )
+        self.hedge_positions[key] = pos
+        return pos
+
+    def close_hedge_slice(
+        self,
+        stock_ticker: str,
+        hedge_ticker: str,
+        hedge_price: float,
+        date: pd.Timestamp,
+    ) -> float:
+        key = f"{stock_ticker}::{hedge_ticker}"
+        if key not in self.hedge_positions:
+            return 0.0
+        pos = self.hedge_positions[key]
+        pnl = pos.direction * pos.quantity * (hedge_price - pos.entry_price)
+        close_notional = abs(pos.quantity * hedge_price)
+        cost = compute_transaction_cost(close_notional, self.tc_bps)
+        self.cash -= cost
+        self.total_costs += cost
+        self.cash += pnl
+        del self.hedge_positions[key]
+        return pnl
+
     def mark_to_market(self, prices: dict[str, float]) -> float:
         """
-        Update equity with unrealized PnL. Returns total daily PnL.
+        Update equity with unrealized PnL from stock and hedge positions.
+        Returns total daily unrealized PnL on stock leg (for diagnostics).
         """
         daily_pnl = 0.0
         for ticker, pos in self.positions.items():
             if ticker in prices and np.isfinite(prices[ticker]):
-                current_price = prices[ticker]
-                unrealized = pos.direction * pos.quantity * (
-                    current_price - pos.entry_price
+                daily_pnl += pos.direction * pos.quantity * (
+                    prices[ticker] - pos.entry_price
                 )
-                daily_pnl += unrealized
 
-        self.equity = self.cash + sum(
-            pos.direction * pos.quantity * prices.get(pos.ticker, pos.entry_price)
-            - pos.direction * pos.quantity * pos.entry_price
-            for pos in self.positions.values()
-        ) + self.initial_equity - (self.initial_equity - self.cash + self.total_costs)
-
-        # Simpler: equity = cash + unrealized PnL
-        unrealized_total = sum(
+        unrealized_stocks = sum(
             pos.direction * pos.quantity * (
                 prices.get(pos.ticker, pos.entry_price) - pos.entry_price
             )
             for pos in self.positions.values()
         )
-        self.equity = self.cash + unrealized_total
-
+        unrealized_hedges = sum(
+            pos.direction * pos.quantity * (
+                prices.get(pos.ticker, pos.entry_price) - pos.entry_price
+            )
+            for pos in self.hedge_positions.values()
+        )
+        self.equity = self.cash + unrealized_stocks + unrealized_hedges
         return daily_pnl

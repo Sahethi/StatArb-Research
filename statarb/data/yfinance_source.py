@@ -24,7 +24,10 @@ class YFinanceSource(DataSource):
         else:
             prices = data[["Close"]]
             prices.columns = tickers
-        prices = prices.ffill().bfill()
+        # Only forward-fill short gaps (1-2 days, e.g. exchange closures).
+        # Long gaps (delistings, pre-IPO periods) stay NaN so the OU fitter
+        # drops those days instead of generating spurious zero returns.
+        prices = prices.ffill(limit=2)
         return prices
 
     def fetch_volume(
@@ -38,5 +41,8 @@ class YFinanceSource(DataSource):
         else:
             volume = data[["Volume"]]
             volume.columns = tickers
-        volume = volume.ffill().bfill()
+        # Volume: treat missing as 0 (no trading that day) rather than bfill
+        # so the volume-time adjustment doesn't project non-existent volume
+        # back into pre-IPO dates.
+        volume = volume.fillna(0)
         return volume

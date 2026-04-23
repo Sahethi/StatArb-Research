@@ -9,7 +9,10 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 
-from app.state import get_backtest_result, get_config, has_backtest_result, get_prices, get_volume
+from app.state import (
+    get_backtest_result, get_config, has_backtest_result,
+    get_prices, get_volume, get_engine_inputs,
+)
 from statarb.backtest.engine import run_backtest
 
 
@@ -23,6 +26,7 @@ if not has_backtest_result():
 
 prices = get_prices()
 volume = get_volume()
+grid_returns, grid_etf_returns, grid_spy_returns, grid_sector_mapping = get_engine_inputs()
 
 if prices is None or volume is None:
     st.warning("Prices and volume not found in session. Please re-run the backtest from Home.")
@@ -82,7 +86,16 @@ if run_grid:
             cfg_copy.signal.s_bc = s_bc_val
 
             try:
-                r = run_backtest(cfg_copy, bt_prices, bt_volume, factor_result)
+                r = run_backtest(
+                    cfg_copy,
+                    bt_prices,
+                    bt_volume,
+                    factor_result,
+                    returns=grid_returns,
+                    etf_returns=grid_etf_returns,
+                    spy_returns=grid_spy_returns,
+                    sector_mapping=grid_sector_mapping,
+                )
                 rows.append({
                     "s_bo": sbo,
                     "s_so": sso,
