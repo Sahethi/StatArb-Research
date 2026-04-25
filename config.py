@@ -611,6 +611,29 @@ class BacktestConfig:
 
 
 @dataclass
+class VolTargetConfig:
+    """Volatility-targeted position sizing (Extension)."""
+    enabled: bool = False
+    # Clamp the scale factor (target_sigma / sigma_eq) to this range so that
+    # no single position blows up or disappears relative to equal-notional.
+    floor_multiplier: float = 0.2
+    cap_multiplier: float = 5.0
+
+
+@dataclass
+class HMMConfig:
+    """HMM regime detection to gate entries (Extension)."""
+    enabled: bool = False
+    n_states: int = 2
+    # Days of history used to fit the HMM before any trading begins.
+    training_window: int = 252
+    # Rolling window for computing cross-sectional vol features.
+    feature_window: int = 20
+    # Minimum P(favorable regime | data up to t) required to open new trades.
+    entry_threshold: float = 0.5
+
+
+@dataclass
 class Config:
     factor: FactorConfig = field(default_factory=FactorConfig)
     ou: OUConfig = field(default_factory=OUConfig)
@@ -618,6 +641,8 @@ class Config:
     volume: VolumeConfig = field(default_factory=VolumeConfig)
     backtest: BacktestConfig = field(default_factory=BacktestConfig)
     pairs: PairsConfig = field(default_factory=PairsConfig)
+    vol_target: VolTargetConfig = field(default_factory=VolTargetConfig)
+    hmm: HMMConfig = field(default_factory=HMMConfig)
     trading_mode: str = "statarb"
     data_source: str = "yfinance"
     start_date: str = "1997-01-01"

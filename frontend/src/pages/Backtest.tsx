@@ -2,7 +2,7 @@ import ConfigPanel from "../components/ConfigPanel";
 import KPICards from "../components/KPICard";
 import {
   EquityChart, DrawdownChart, ExposureChart,
-  AnnualReturnsChart, SScoreChart,
+  AnnualReturnsChart, SScoreChart, RegimeChart,
 } from "../components/Charts";
 import SScoreTable from "../components/SScoreTable";
 import type { BacktestRequest, BacktestResponse, DefaultsResponse } from "../types";
@@ -39,6 +39,12 @@ function Results({ r }: { r: BacktestResponse }) {
       <Card title="Equity curve" subtitle="Mark-to-market portfolio value">
         <EquityChart data={r.equity_curve} />
       </Card>
+      {r.regime_curve && r.regime_curve.length > 0 && (
+        <Card title="HMM regime probability"
+          subtitle="P(favorable | data up to t) — entries gated when below threshold">
+          <RegimeChart data={r.regime_curve} />
+        </Card>
+      )}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card title="Drawdown" subtitle="Underwater curve from running peak">
           <DrawdownChart data={r.drawdown_curve} />

@@ -24,7 +24,8 @@ if ROOT not in sys.path:
 
 from config import (  # noqa: E402
     Config, FactorConfig, OUConfig, SignalConfig, VolumeConfig,
-    BacktestConfig, PairsConfig, DEFAULT_TICKERS, DATA_SOURCES, MARKET_ETF,
+    BacktestConfig, PairsConfig, VolTargetConfig, HMMConfig,
+    DEFAULT_TICKERS, DATA_SOURCES, MARKET_ETF,
     PAPER_TICKERS, MODERN_TICKERS,
 )
 from statarb.data.universe import get_data_source, get_sector_mapping  # noqa: E402
@@ -78,6 +79,17 @@ class BacktestRequest(BaseModel):
     pairs_max: int = 20
     pairs_min_hl: float = 1.0
     pairs_max_hl: float = 126.0
+
+    # ── Extensions ──
+    hmm_enabled: bool = False
+    hmm_n_states: int = 2
+    hmm_training_window: int = 252
+    hmm_feature_window: int = 20
+    hmm_entry_threshold: float = 0.5
+
+    vol_target_enabled: bool = False
+    vol_target_floor: float = 0.2
+    vol_target_cap: float = 5.0
 
 
 @app.get("/api/health")
@@ -141,6 +153,18 @@ def _build_config(req: BacktestRequest) -> Config:
             max_pairs=req.pairs_max,
             min_half_life=req.pairs_min_hl,
             max_half_life=req.pairs_max_hl,
+        ),
+        vol_target=VolTargetConfig(
+            enabled=req.vol_target_enabled,
+            floor_multiplier=req.vol_target_floor,
+            cap_multiplier=req.vol_target_cap,
+        ),
+        hmm=HMMConfig(
+            enabled=req.hmm_enabled,
+            n_states=req.hmm_n_states,
+            training_window=req.hmm_training_window,
+            feature_window=req.hmm_feature_window,
+            entry_threshold=req.hmm_entry_threshold,
         ),
         data_source=req.data_source,
         start_date=req.start_date,
@@ -356,6 +380,11 @@ def run_backtest_endpoint(req: BacktestRequest):
             "trades": trades_list,
             "diagnostics": diag,
             "ou_last": ou_rows,
+            "regime_curve": (
+                [{"date": str(d)[:10], "p_favorable": float(v)}
+                 for d, v in result.regime_proba.items()]
+                if result.regime_proba is not None else []
+            ),
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
