@@ -173,7 +173,8 @@ def run_backtest(
     print(f"[run_backtest] universe size requested: {len(tickers)}")
     coverage = returns.notna().sum()
     nonempty = int((coverage > 0).sum())
-    median_cov = int(coverage.median())
+    med = coverage.median() if len(coverage) else 0
+    median_cov = int(med) if pd.notna(med) else 0
     print(f"[run_backtest] tickers with any return data: {nonempty} / {len(tickers)}, "
           f"median days of coverage: {median_cov}")
     if model_type == "etf" or model_type == "combined":

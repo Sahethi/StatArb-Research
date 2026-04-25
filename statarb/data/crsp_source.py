@@ -133,7 +133,11 @@ class CRSPSource(DataSource):
         volume = volume[
             [t for t in tickers if t in volume.columns]
         ]
-        volume = volume.fillna(0).astype(float)
+        # Leave NaN for genuinely-missing days (pre-listing, post-delisting,
+        # CRSP gaps). compute_volume_adjusted_returns falls back to the raw
+        # return when the volume ratio is NaN — see yfinance_source for the
+        # same rationale.
+        volume = volume.astype(float)
         return volume
 
     def fetch_sector_mapping(self, tickers: list[str]) -> dict[str, str]:

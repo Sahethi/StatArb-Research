@@ -37,21 +37,26 @@ def compute_pca_eigenportfolio_returns(
         V: eigenvector matrix (N x m) -- top m eigenvectors.
         stds: 1-D array of per-stock std devs (N,) used in standardization.
     """
-    # Drop tickers with >20% NaN coverage. For the remaining tickers any
-    # isolated NaN (one-off missing print, single-day halt) is filled with 0.
-    # The previous `.dropna(how="any")` collapsed the window whenever any
-    # surviving column had even one NaN — fine for 40 stable mega-caps but
-    # catastrophic for a 1,000+ universe where different names IPO / delist
-    # on different dates. Filling with 0 is unbiased for daily log-returns
-    # (mean ~= 0) and preserves the full 252-day window for PCA.
+    # Drop tickers with >20% NaN coverage. Remaining NaN days get a
+    # backward-looking imputation: the trailing 20-day rolling mean of
+    # the same column. This uses only data strictly before the NaN day
+    # within the window (no in-window lookahead), and is closer to the
+    # "expected return on a typical recent day" than a flat zero. Any
+    # NaN that survives the rolling fill (e.g., at the very start of
+    # the window) is set to the column's expanding mean and finally to
+    # 0 as a last resort.
     min_obs = int(len(returns_window) * 0.80)
-    w = returns_window.dropna(axis=1, thresh=min_obs).fillna(0.0)
+    w = returns_window.dropna(axis=1, thresh=min_obs)
     if w.empty or w.shape[1] < 2:
         raise ValueError("PCA window has insufficient data")
 
-    means = w.mean()
-    stds = w.std().replace(0, 1e-10)
-    standardized = (w - means) / stds
+    rolling_mean = w.rolling(window=20, min_periods=5).mean().shift(1)
+    expanding_mean = w.expanding(min_periods=5).mean().shift(1)
+    w_filled = w.fillna(rolling_mean).fillna(expanding_mean).fillna(0.0)
+
+    means = w_filled.mean()
+    stds = w_filled.std().replace(0, 1e-10)
+    standardized = (w_filled - means) / stds
 
     if use_ledoit_wolf:
         lw = LedoitWolf().fit(standardized.values)
@@ -88,8 +93,11 @@ def compute_pca_eigenportfolio_returns(
     # Eigenportfolio weights (Eq. 9): w_ij = v_ij / sigma_i
     weights = V / stds_arr[:, np.newaxis]  # (N, m)
 
-    # Eigenportfolio returns over this window
-    F = w.values @ weights  # (T, m)
+    # Eigenportfolio returns over this window. Use the trailing-imputed
+    # matrix (same backward-looking fill used for the cov matrix) so the
+    # factor return on a missing-data day is the trailing-average of that
+    # ticker's recent returns rather than an arbitrary zero.
+    F = w_filled.values @ weights  # (T, m)
     factor_names = [f"PC{j + 1}" for j in range(m)]
     eigenport_returns = pd.DataFrame(F, index=w.index, columns=factor_names)
 

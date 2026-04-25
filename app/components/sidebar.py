@@ -12,7 +12,7 @@ def build_sidebar() -> Config:
     st.sidebar.header("Data Settings")
 
     data_source = st.sidebar.selectbox(
-        "Data Source", DATA_SOURCES, index=0
+        "Data Source", DATA_SOURCES, index=1
     )
 
     tickers_input = st.sidebar.text_area(

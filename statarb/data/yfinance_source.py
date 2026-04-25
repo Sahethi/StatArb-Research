@@ -46,10 +46,13 @@ class YFinanceSource(DataSource):
         else:
             volume = data[["Volume"]]
             volume.columns = tickers
-        # Volume: treat missing as 0 (no trading that day) rather than bfill
-        # so the volume-time adjustment doesn't project non-existent volume
-        # back into pre-IPO dates.
-        volume = volume.fillna(0)
+        # Leave NaN where data is genuinely missing (pre-IPO, post-delist,
+        # provider gap). compute_volume_adjusted_returns handles NaN by
+        # falling back to the unadjusted return for that day, which is the
+        # right behavior. Filling with 0 used to bias the trailing-volume
+        # average downward and inflate the volume-ratio adjustment on
+        # adjacent real-trading days.
+        volume = volume.astype(float)
         return volume
 
     def fetch_sector_mapping(self, tickers: list[str]) -> dict[str, str]:

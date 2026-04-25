@@ -135,8 +135,13 @@ if st.sidebar.button("Run Backtest", type="primary", width="stretch"):
         if config.factor.model_type == "pairs":
             pair_prices = {}
             for col in factor_result.residuals.columns:
+                # cumsum skips NaN by default, so leading NaN rows (the
+                # formation period before rolling β kicks in) stay NaN.
                 cs = factor_result.residuals[col].cumsum()
-                pair_prices[col] = 100 * np.exp(cs - cs.iloc[0])
+                first_finite = cs.dropna()
+                if first_finite.empty:
+                    continue
+                pair_prices[col] = 100 * np.exp(cs - first_finite.iloc[0])
             bt_prices = pd.DataFrame(pair_prices)
             bt_volume = pd.DataFrame(
                 np.ones(bt_prices.shape), index=bt_prices.index, columns=bt_prices.columns
@@ -145,12 +150,19 @@ if st.sidebar.button("Run Backtest", type="primary", width="stretch"):
             bt_prices = prices
             bt_volume = volume
 
+        # For the pairs path, the universe traded is the SYNTHETIC pair
+        # series ("T1_T2" columns), not the underlying stocks. The engine
+        # must derive returns from `bt_prices` (the synthetic frame) so
+        # `returns.columns` matches `prices.columns`. Passing the original
+        # stock-returns frame here produces an empty intersection and
+        # collapses every diagnostic to NaN.
+        bt_returns = None if config.factor.model_type == "pairs" else returns
         result = run_backtest(
             config,
             bt_prices,
             bt_volume,
             factor_result,
-            returns=returns,
+            returns=bt_returns,
             etf_returns=etf_returns_df,
             spy_returns=spy_returns_df,
             sector_mapping=sector_mapping,
