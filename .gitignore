@@ -79,3 +79,9 @@ Thumbs.db
 
 # Claude / agent local state
 .claude/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+*.tsbuildinfo
