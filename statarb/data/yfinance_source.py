@@ -1,8 +1,13 @@
 """Yahoo Finance data source implementation."""
+import logging
+
 import pandas as pd
 import yfinance as yf
 
+from config import SECTOR_TO_ETF_MAP
 from .base import DataSource
+
+logger = logging.getLogger(__name__)
 
 
 class YFinanceSource(DataSource):
@@ -46,3 +51,23 @@ class YFinanceSource(DataSource):
         # back into pre-IPO dates.
         volume = volume.fillna(0)
         return volume
+
+    def fetch_sector_mapping(self, tickers: list[str]) -> dict[str, str]:
+        """
+        Sector lookup via yfinance `.info` metadata. Only works for
+        currently-listed tickers — delisted names typically return an
+        empty or error-raising info dict. Unresolved tickers are left
+        out of the returned dict so the caller can fall through to
+        TICKER_TO_ETF_OVERRIDES or a final "XLY" default.
+        """
+        mapping: dict[str, str] = {}
+        for ticker in tickers:
+            try:
+                info = yf.Ticker(ticker).info
+                sector = info.get("sector", "")
+                if sector and sector in SECTOR_TO_ETF_MAP:
+                    mapping[ticker] = SECTOR_TO_ETF_MAP[sector]
+            except Exception:
+                # Delisted / no profile — skip and let the caller handle.
+                logger.debug(f"yfinance .info failed for {ticker}; skipping")
+        return mapping

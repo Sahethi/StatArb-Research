@@ -10,6 +10,7 @@ import plotly.express as px
 
 from app.state import get_backtest_result, get_config, has_backtest_result
 from app.components.charts import plot_correlation_heatmap, plot_eigenvalue_spectrum
+from app.components.df_display import show_df
 
 
 st.set_page_config(page_title="Factor Diagnostics", layout="wide")
@@ -135,7 +136,7 @@ if not factor_result.residuals.empty:
         "Min": r.min().round(4),
         "Max": r.max().round(4),
     })
-    st.dataframe(stats_df, width="stretch")
+    show_df(stats_df)
 
 # ── OU Parameters (Last Estimation) ──
 st.subheader("OU Parameters (Last Estimation)")
@@ -154,7 +155,7 @@ if daily_ou:
                 "m (equilibrium)": round(p.m, 5),
             })
         ou_df = pd.DataFrame(rows).sort_values("Half-life (days)")
-        st.dataframe(ou_df, width="stretch")
+        show_df(ou_df)
 
 # ── Residual Analysis ──
 st.subheader("Residual Analysis")

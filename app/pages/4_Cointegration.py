@@ -9,6 +9,7 @@ import plotly.graph_objects as go
 
 from app.state import get_backtest_result, get_config, has_backtest_result, get_prices
 from statarb.signals.cointegration import test_cointegration, compute_pair_spread
+from app.components.df_display import show_df
 
 
 st.set_page_config(page_title="Cointegration Analysis", layout="wide")
@@ -63,7 +64,7 @@ display_df["half_life"] = display_df["half_life"].map(
     lambda x: f"{x:.1f}" if pd.notna(x) else "N/A"
 )
 
-st.dataframe(display_df, width="stretch", height=300)
+show_df(display_df, height=300)
 
 # ── Currently selected pairs (if pairs model was used) ──
 if has_backtest_result():
@@ -83,7 +84,7 @@ if has_backtest_result():
                 sp_display["half_life"] = sp_display["half_life"].map(
                     lambda x: f"{x:.1f}" if pd.notna(x) else "N/A"
                 )
-            st.dataframe(sp_display, width="stretch")
+            show_df(sp_display)
 
 # ── Pair Deep Dive ──
 st.subheader("Pair Analysis")

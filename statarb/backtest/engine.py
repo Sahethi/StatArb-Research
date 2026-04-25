@@ -266,6 +266,16 @@ def run_backtest(
     etf_idx = {c: i for i, c in enumerate(etf_returns.columns)} if etf_returns is not None else {}
     spy_arr = spy_series.values if spy_series is not None else None
 
+    # Paper §5.1 investable-universe filter:
+    # "Our basic investable universe is formed by stocks that have a
+    #  continuous trading history of at least 500 days preceding the
+    #  trading date."
+    # Precompute per-ticker cumulative count of finite returns so the
+    # per-day filter is an O(1) lookup.
+    min_history_days = 500
+    valid_counts = np.isfinite(signal_arr).cumsum(axis=0)  # (T, N)
+    history_skipped_logged = False
+
     first_eligible_logged = False
 
     for i in range(min_start, len(dates)):
@@ -320,7 +330,18 @@ def run_backtest(
         if pca_dates_60 is not None:
             pca_date_positions = signal_returns.index.get_indexer(pca_dates_60)
 
+        # Stats for the 500-day history gate (first-day diagnostic only).
+        filtered_by_history = 0
+
         for ticker in tickers:
+            # Paper §5.1 500-day history requirement. `valid_counts[i-1, idx]`
+            # is the running number of finite return observations strictly
+            # before day i (i.e. available when deciding trades at the close
+            # of day i-1 for execution on day i).
+            if valid_counts[i - 1, ticker_idx[ticker]] < min_history_days:
+                filtered_by_history += 1
+                continue
+
             if model_type == "etf":
                 stock_60 = signal_arr[i - ou_window:i, ticker_idx[ticker]]
                 etf_sym = sector_mapping.get(ticker)
@@ -394,6 +415,11 @@ def run_backtest(
             print(f"[run_backtest] first day with eligible stocks: "
                   f"{str(date)[:10]}  ({len(eligible)} / {len(ou_params)} passed kappa>={config.ou.kappa_min})")
             first_eligible_logged = True
+
+        if not history_skipped_logged and filtered_by_history > 0:
+            print(f"[run_backtest] paper §5.1 history filter (≥{min_history_days} days): "
+                  f"{filtered_by_history}/{len(tickers)} tickers skipped on {str(date)[:10]}")
+            history_skipped_logged = True
 
         # ── Step 4: s-scores ──
         eligible_params = {t: ou_params[t] for t in eligible}

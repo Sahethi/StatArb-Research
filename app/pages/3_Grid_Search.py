@@ -14,6 +14,7 @@ from app.state import (
     get_prices, get_volume, get_engine_inputs,
 )
 from statarb.backtest.engine import run_backtest
+from app.components.df_display import show_df
 
 
 st.set_page_config(page_title="Grid Search", layout="wide")
@@ -185,4 +186,4 @@ if "grid_results" in st.session_state:
     display_df = grid_df.copy()
     display_df["Max DD"] = display_df["Max DD"].map(lambda x: f"{x:.2%}" if pd.notna(x) else "N/A")
     display_df["Total Return"] = display_df["Total Return"].map(lambda x: f"{x:.2%}" if pd.notna(x) else "N/A")
-    st.dataframe(display_df, width="stretch")
+    show_df(display_df)

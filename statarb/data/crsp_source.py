@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
 
+from config import SIC_TO_ETF, SIC3_TO_ETF_OVERRIDES
 from .base import DataSource
 
 load_dotenv()
@@ -134,3 +135,49 @@ class CRSPSource(DataSource):
         ]
         volume = volume.fillna(0).astype(float)
         return volume
+
+    def fetch_sector_mapping(self, tickers: list[str]) -> dict[str, str]:
+        """
+        Sector lookup via CRSP's `stocknames` SIC code (`hsiccd`), mapped
+        through SIC_TO_ETF / SIC3_TO_ETF_OVERRIDES in config.py.
+
+        Works for delisted names because stocknames carries the full
+        listing history per PERMNO. Picks the most recent SIC code per
+        ticker when a name changed industry codes across its life.
+        """
+        self._validate_tickers(tickers)
+        conn = self._connect()
+        ticker_str = "', '".join(tickers)
+        # crsp.stocknames uses `siccd` as the column name (not `hsiccd` —
+        # that's the column in crsp.msenames / dsenames header tables).
+        query = f"""
+            SELECT ticker, siccd, nameenddt
+            FROM crsp.stocknames
+            WHERE ticker IN ('{ticker_str}')
+              AND siccd IS NOT NULL
+        """
+        raw = conn.raw_sql(query)
+        if raw.empty:
+            return {}
+
+        # Most recent SIC per ticker (same pattern as _ticker_to_permno).
+        raw["nameenddt"] = raw["nameenddt"].fillna(pd.Timestamp("2099-12-31"))
+        raw = (
+            raw
+            .sort_values("nameenddt", ascending=False)
+            .drop_duplicates(subset=["ticker"], keep="first")
+        )
+
+        mapping: dict[str, str] = {}
+        for _, row in raw.iterrows():
+            tk = row["ticker"]
+            try:
+                sic = int(row["siccd"])
+            except (TypeError, ValueError):
+                continue
+            sic3 = sic // 10           # 3-digit prefix (e.g. 2834 → 283)
+            sic2 = sic // 100          # 2-digit prefix (e.g. 2834 → 28)
+            etf = SIC3_TO_ETF_OVERRIDES.get(sic3) or SIC_TO_ETF.get(sic2)
+            if etf:
+                mapping[tk] = etf
+        return mapping
