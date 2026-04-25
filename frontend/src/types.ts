@@ -43,6 +43,9 @@ export interface BacktestRequest {
   hmm_training_window: number;
   hmm_feature_window: number;
   hmm_entry_threshold: number;
+  hmm_favorable_high_vol: boolean;
+  hmm_soft_gate: boolean;
+  hmm_soft_gate_floor: number;
 
   vol_target_enabled: boolean;
   vol_target_floor: number;

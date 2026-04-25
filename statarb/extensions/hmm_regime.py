@@ -52,14 +52,20 @@ class HMMRegimeDetector:
         training_window: int = 252,
         feature_window: int = 20,
         random_state: int = 42,
+        favorable_high_vol: bool = True,
     ):
         self.n_states = n_states
         self.training_window = training_window
         self.feature_window = feature_window
         self.random_state = random_state
+        self.favorable_high_vol = favorable_high_vol
         self.model: GaussianHMM | None = None
         self.favorable_state: int = 0
         self._is_fitted: bool = False
+        # Index (into the original `features` array) of the first row that is
+        # strictly out-of-sample for the fitted HMM. Used by callers to mask
+        # in-sample regime probabilities.
+        self.training_end_idx: int = 0
         # Training-window statistics for feature standardization
         self._feat_mean: np.ndarray | None = None
         self._feat_std: np.ndarray | None = None
@@ -111,15 +117,30 @@ class HMMRegimeDetector:
         Returns:
             self
         """
-        train = features[: self.training_window]
-        valid_mask = ~np.isnan(train).any(axis=1)
-        valid = train[valid_mask]
+        # Use the first `training_window` rows that are actually valid.
+        # The leading rows of `features` are NaN by construction (factor-model
+        # warm-up + rolling feature_window), so slicing `features[:training_window]`
+        # naively can yield zero usable rows. Skip NaNs first, then take the
+        # training prefix from what remains.
+        valid_all_mask = ~np.isnan(features).any(axis=1)
+        valid_idx_all = np.flatnonzero(valid_all_mask)
+        valid_all = features[valid_all_mask]
+        valid = valid_all[: self.training_window]
 
-        if len(valid) < 2 * self.n_states:
+        # Record where training ends in the original feature index. Anything at
+        # or before this index has been seen by the EM fit and is therefore
+        # in-sample for regime probabilities.
+        if len(valid_idx_all) >= self.training_window:
+            self.training_end_idx = int(valid_idx_all[self.training_window - 1]) + 1
+        else:
+            self.training_end_idx = int(valid_idx_all[-1]) + 1 if len(valid_idx_all) else 0
+
+        min_required = max(2 * self.n_states, 10)
+        if len(valid) < min_required:
             raise ValueError(
                 f"Only {len(valid)} valid training rows after dropping NaN — "
-                "need at least 2 × n_states. Increase training_window or "
-                "reduce feature_window."
+                f"need at least {min_required}. Increase training_window, "
+                "reduce feature_window, or extend the backtest history."
             )
 
         # Standardize features using training statistics
@@ -142,10 +163,17 @@ class HMMRegimeDetector:
         with contextlib.redirect_stderr(io.StringIO()):
             self.model.fit(valid_scaled)
 
-        # Identify the favorable state as the one with lower mean vol level
-        # (Feature 0 is vol level: lower = calmer = more mean-reverting)
+        # Identify the favorable state by mean cross-sectional residual-vol
+        # level (Feature 0). Mean-reversion typically harvests dispersion, so
+        # the HIGH-vol state is labelled favorable by default. Set
+        # favorable_high_vol=False to revert to the calm-is-favorable
+        # hypothesis.
         means_vol = self.model.means_[:, 0]
-        self.favorable_state = int(np.argmin(means_vol))
+        self.favorable_state = (
+            int(np.argmax(means_vol))
+            if self.favorable_high_vol
+            else int(np.argmin(means_vol))
+        )
 
         logger.info(
             "HMM fitted on %d observations. Favorable state: %d. "

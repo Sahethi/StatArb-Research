@@ -629,8 +629,18 @@ class HMMConfig:
     training_window: int = 252
     # Rolling window for computing cross-sectional vol features.
     feature_window: int = 20
-    # Minimum P(favorable regime | data up to t) required to open new trades.
+    # Minimum P(favorable regime | data up to t) required to open new trades
+    # (only used in binary gating mode).
     entry_threshold: float = 0.5
+    # If True, label the HIGH cross-sectional residual-vol state as favorable
+    # (mean-reversion typically harvests dispersion). If False, label the LOW
+    # vol state as favorable (calm = mean-reverting hypothesis).
+    favorable_high_vol: bool = True
+    # If True, scale per-position notional by p_fav instead of binary gating.
+    # `entry_threshold` is ignored when soft_gate is True; the floor below
+    # caps how aggressively the book is de-risked.
+    soft_gate: bool = True
+    soft_gate_floor: float = 0.2
 
 
 @dataclass

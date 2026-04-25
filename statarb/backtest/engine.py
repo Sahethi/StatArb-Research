@@ -76,6 +76,7 @@ def _setup_hmm(
         n_states=config.hmm.n_states,
         training_window=config.hmm.training_window,
         feature_window=config.hmm.feature_window,
+        favorable_high_vol=getattr(config.hmm, "favorable_high_vol", True),
     )
     features = detector.build_features(residuals)
     try:
@@ -84,7 +85,15 @@ def _setup_hmm(
         logger.warning("HMM fit failed (%s) — regime gating disabled.", exc)
         return None, None
     proba = detector.predict_proba_causal(features)
-    favorable = detector.get_favorable_proba(proba)
+    favorable = detector.get_favorable_proba(proba).astype(float)
+    # Mask the in-sample prefix: every index up to (and including) the last
+    # training row was seen by EM. Engine treats NaN as "regime unknown" and
+    # blocks new entries, eliminating the in-sample lookahead.
+    end_idx = int(detector.training_end_idx)
+    if end_idx > 0:
+        favorable[:end_idx] = np.nan
+    print(f"[HMM] training ends at residual index {end_idx} "
+          f"({end_idx} rows in-sample, {len(favorable) - end_idx} OOS)")
     return favorable, detector
 
 
@@ -544,17 +553,31 @@ def run_backtest(
         # entry logic is unchanged; when on, gate new entries on the
         # causal P(favorable | data up to t). Exits are NEVER gated.
         in_favorable_regime = True
+        regime_scale = 1.0
         if favorable_proba is not None:
             p_fav_raw = favorable_proba[i]
-            p_fav = float(p_fav_raw) if not np.isnan(p_fav_raw) else 1.0
-            in_favorable_regime = p_fav >= config.hmm.entry_threshold
-            regime_records[date] = p_fav
+            if np.isnan(p_fav_raw):
+                # Regime unknown (in-sample HMM training prefix or no data
+                # yet). Block new entries to avoid in-sample lookahead.
+                in_favorable_regime = False
+                regime_scale = 0.0
+            else:
+                p_fav = float(p_fav_raw)
+                regime_records[date] = p_fav
+                if getattr(config.hmm, "soft_gate", False):
+                    floor = float(getattr(config.hmm, "soft_gate_floor", 0.2))
+                    regime_scale = max(floor, min(1.0, p_fav))
+                    in_favorable_regime = True
+                else:
+                    in_favorable_regime = p_fav >= config.hmm.entry_threshold
 
         # ── Step 6: entries ──
         notional_per_pos = portfolio.compute_notional_per_position(n_target)
-        # Vol-targeting: cross-sectional median sigma_eq of eligible stocks.
-        target_sigma = (
-            vol_sizer.compute_target_sigma(eligible_params)
+        # Vol-targeting: per-ticker scale factors with mean = 1.0 across the
+        # eligible set, so the total deployed notional matches the equal-
+        # notional baseline (no silent leverage inflation).
+        vol_scales = (
+            vol_sizer.compute_scales(eligible_params)
             if vol_sizer is not None else None
         )
         for ticker in eligible:
@@ -576,15 +599,14 @@ def run_backtest(
             if direction is None:
                 continue
 
-            # Per-ticker notional: vol-targeted or equal-notional.
-            if vol_sizer is not None and target_sigma is not None:
-                pos_notional = vol_sizer.scale_notional(
-                    notional_per_pos,
-                    ou_params[ticker].sigma_eq,
-                    target_sigma,
-                )
+            # Per-ticker notional: vol-targeted (budget-preserving) or
+            # equal-notional.
+            if vol_scales is not None:
+                pos_notional = notional_per_pos * vol_scales.get(ticker, 1.0)
             else:
                 pos_notional = notional_per_pos
+            # Soft regime gate: scale by p_fav (1.0 when HMM off or binary).
+            pos_notional = pos_notional * regime_scale
 
             opened = portfolio.open_position(
                 ticker=ticker,

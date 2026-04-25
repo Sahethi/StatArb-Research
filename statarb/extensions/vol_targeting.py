@@ -38,45 +38,62 @@ class VolTargetedSizer:
         self.floor_multiplier = floor_multiplier
         self.cap_multiplier = cap_multiplier
 
-    def compute_target_sigma(self, ou_params: dict[str, OUParams]) -> float:
+    def compute_scales(
+        self, ou_params: dict[str, OUParams]
+    ) -> dict[str, float]:
         """
-        Compute the cross-sectional median sigma_eq across eligible stocks.
+        Compute per-ticker risk-parity scale factors, clipped and then
+        renormalised so the mean scale across the eligible set is exactly 1.0.
 
-        This is used as the normalization target so that the median stock
-        receives exactly the equal-notional allocation, preserving average
+        Renormalisation is the critical step — it guarantees that
+
+            sum_i (base_notional * scale_i) == base_notional * n
+
+        so the total deployed notional matches the equal-notional baseline
+        regardless of the cross-sectional sigma distribution or the asymmetric
+        floor/cap clip. Without this, scales = target / sigma with target =
+        median (or any fixed target) drift the gross exposure upward whenever
+        the harmonic mean of sigma is below the target, silently increasing
         leverage.
 
         Args:
             ou_params: Dict mapping ticker -> OUParams for eligible stocks.
 
         Returns:
-            Median sigma_eq, or 1.0 if no valid params.
+            Dict mapping ticker -> scale factor (≥ 0, mean = 1.0). Tickers
+            whose sigma_eq is non-positive are mapped to 1.0.
         """
-        sigmas = [p.sigma_eq for p in ou_params.values() if p.sigma_eq > 0]
-        if not sigmas:
-            return 1.0
-        return float(np.median(sigmas))
+        if not ou_params:
+            return {}
 
-    def scale_notional(
-        self,
-        base_notional: float,
-        sigma_eq: float,
-        target_sigma: float,
-    ) -> float:
-        """
-        Scale base_notional so position risk equals target risk level.
+        # Inverse-sigma weights (risk parity).
+        raw: dict[str, float] = {}
+        for tk, p in ou_params.items():
+            raw[tk] = 1.0 / p.sigma_eq if p.sigma_eq > 0 else float("nan")
 
-        Args:
-            base_notional: Equal-notional baseline for this position.
-            sigma_eq: Equilibrium volatility of this stock's residual.
-            target_sigma: Cross-sectional target (typically median sigma_eq).
+        finite = np.array([v for v in raw.values() if np.isfinite(v)])
+        if finite.size == 0:
+            return {tk: 1.0 for tk in ou_params}
 
-        Returns:
-            Scaled dollar notional for the position.
-        """
-        if sigma_eq <= 0 or target_sigma <= 0:
-            return base_notional
+        # Pre-normalise: mean(weight) = 1.0 before clipping.
+        mean_w = float(np.mean(finite))
+        if mean_w <= 0:
+            return {tk: 1.0 for tk in ou_params}
 
-        scale = target_sigma / sigma_eq
-        scale = float(np.clip(scale, self.floor_multiplier, self.cap_multiplier))
-        return base_notional * scale
+        scales: dict[str, float] = {}
+        for tk, w in raw.items():
+            if not np.isfinite(w):
+                scales[tk] = 1.0  # fallback for missing sigma
+                continue
+            s = w / mean_w
+            scales[tk] = float(
+                np.clip(s, self.floor_multiplier, self.cap_multiplier)
+            )
+
+        # Re-normalise after clipping so the budget is exactly preserved.
+        finite_scales = np.array(list(scales.values()))
+        mean_s = float(np.mean(finite_scales))
+        if mean_s > 0:
+            for tk in scales:
+                scales[tk] = scales[tk] / mean_s
+        return scales

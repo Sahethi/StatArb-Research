@@ -36,6 +36,7 @@ export default function ConfigPanel({ defaults, onRun, busy }: Props) {
     pairs_pvalue: 0.05, pairs_max: 20, pairs_min_hl: 1.0, pairs_max_hl: 126.0,
     hmm_enabled: false, hmm_n_states: 2, hmm_training_window: 252,
     hmm_feature_window: 20, hmm_entry_threshold: 0.5,
+    hmm_favorable_high_vol: true, hmm_soft_gate: true, hmm_soft_gate_floor: 0.2,
     vol_target_enabled: false, vol_target_floor: 0.2, vol_target_cap: 5.0,
   });
 
@@ -290,6 +291,21 @@ export default function ConfigPanel({ defaults, onRun, busy }: Props) {
                       <NumField label="Entry threshold" v={req.hmm_entry_threshold}
                         step={0.05} min={0.0} max={1.0}
                         onChange={(v) => update("hmm_entry_threshold", v)} />
+                      <NumField label="Soft-gate floor" v={req.hmm_soft_gate_floor}
+                        step={0.05} min={0.0} max={1.0}
+                        onChange={(v) => update("hmm_soft_gate_floor", v)} />
+                    </div>
+                    <div className="flex flex-wrap gap-4 mt-3 text-xs text-slate-700">
+                      <label className="flex items-center gap-2">
+                        <input type="checkbox" checked={req.hmm_favorable_high_vol}
+                          onChange={(e) => update("hmm_favorable_high_vol", e.target.checked)} />
+                        Favorable = high cross-sectional residual vol (mean-reversion harvests dispersion)
+                      </label>
+                      <label className="flex items-center gap-2">
+                        <input type="checkbox" checked={req.hmm_soft_gate}
+                          onChange={(e) => update("hmm_soft_gate", e.target.checked)} />
+                        Soft gate (scale notional by P(favorable) instead of binary on/off)
+                      </label>
                     </div>
                   </ExtBlock>
 
