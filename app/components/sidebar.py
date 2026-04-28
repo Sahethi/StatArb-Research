@@ -12,7 +12,7 @@ def build_sidebar() -> Config:
     st.sidebar.header("Data Settings")
 
     data_source = st.sidebar.selectbox(
-        "Data Source", DATA_SOURCES, index=0
+        "Data Source", DATA_SOURCES, index=1
     )
 
     tickers_input = st.sidebar.text_area(
@@ -27,11 +27,13 @@ def build_sidebar() -> Config:
         "Start Date",
         value=datetime.date(1997, 1, 1),
         min_value=datetime.date(1960, 1, 1),
+        max_value=datetime.date(2025, 12, 31),
     )
     end_date = col2.date_input(
         "End Date",
         value=datetime.date(2007, 12, 31),
         min_value=datetime.date(1960, 1, 1),
+        max_value=datetime.date(2025, 12, 31),
     )
 
     st.sidebar.header("Factor Model")
@@ -116,7 +118,7 @@ def build_sidebar() -> Config:
     leverage_long = col1.number_input("Long Leverage", 0.0, 5.0, 2.0, 0.5)
     leverage_short = col2.number_input("Short Leverage", 0.0, 5.0, 2.0, 0.5)
     tc_bps = st.sidebar.number_input(
-        "Transaction Cost (bps/side)", 0.0, 50.0, 5.0, 1.0
+        "Transaction Cost (bps/side)", 0.0, 50.0, 1.0, 1.0
     )
     hedge = st.sidebar.selectbox(
         "Hedge Instrument",

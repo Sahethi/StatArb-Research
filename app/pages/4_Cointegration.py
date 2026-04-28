@@ -9,6 +9,7 @@ import plotly.graph_objects as go
 
 from app.state import get_backtest_result, get_config, has_backtest_result, get_prices
 from statarb.signals.cointegration import test_cointegration, compute_pair_spread
+from app.components.df_display import show_df
 
 
 st.set_page_config(page_title="Cointegration Analysis", layout="wide")
@@ -63,7 +64,7 @@ display_df["half_life"] = display_df["half_life"].map(
     lambda x: f"{x:.1f}" if pd.notna(x) else "N/A"
 )
 
-st.dataframe(display_df, use_container_width=True, height=300)
+show_df(display_df, height=300)
 
 # ── Currently selected pairs (if pairs model was used) ──
 if has_backtest_result():
@@ -83,7 +84,7 @@ if has_backtest_result():
                 sp_display["half_life"] = sp_display["half_life"].map(
                     lambda x: f"{x:.1f}" if pd.notna(x) else "N/A"
                 )
-            st.dataframe(sp_display, use_container_width=True)
+            show_df(sp_display)
 
 # ── Pair Deep Dive ──
 st.subheader("Pair Analysis")
@@ -127,7 +128,7 @@ if selected_label:
             yaxis_title="Log Spread",
             template="plotly_white",
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     with col_right:
         st.subheader("Z-Score (Trading Signal)")
@@ -144,7 +145,7 @@ if selected_label:
             yaxis_title="Z-Score",
             template="plotly_white",
         )
-        st.plotly_chart(fig2, use_container_width=True)
+        st.plotly_chart(fig2, width="stretch")
 
     # ── OU parameter estimates on the spread ──
     st.subheader("OU Parameter Estimates on Spread")
@@ -190,4 +191,4 @@ if selected_label:
         template="plotly_white",
         hovermode="x unified",
     )
-    st.plotly_chart(fig3, use_container_width=True)
+    st.plotly_chart(fig3, width="stretch")

@@ -9,8 +9,12 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 
-from app.state import get_backtest_result, get_config, has_backtest_result, get_prices, get_volume
+from app.state import (
+    get_backtest_result, get_config, has_backtest_result,
+    get_prices, get_volume, get_engine_inputs,
+)
 from statarb.backtest.engine import run_backtest
+from app.components.df_display import show_df
 
 
 st.set_page_config(page_title="Grid Search", layout="wide")
@@ -23,6 +27,7 @@ if not has_backtest_result():
 
 prices = get_prices()
 volume = get_volume()
+grid_returns, grid_etf_returns, grid_spy_returns, grid_sector_mapping = get_engine_inputs()
 
 if prices is None or volume is None:
     st.warning("Prices and volume not found in session. Please re-run the backtest from Home.")
@@ -82,7 +87,16 @@ if run_grid:
             cfg_copy.signal.s_bc = s_bc_val
 
             try:
-                r = run_backtest(cfg_copy, bt_prices, bt_volume, factor_result)
+                r = run_backtest(
+                    cfg_copy,
+                    bt_prices,
+                    bt_volume,
+                    factor_result,
+                    returns=grid_returns,
+                    etf_returns=grid_etf_returns,
+                    spy_returns=grid_spy_returns,
+                    sector_mapping=grid_sector_mapping,
+                )
                 rows.append({
                     "s_bo": sbo,
                     "s_so": sso,
@@ -150,7 +164,7 @@ if "grid_results" in st.session_state:
             yaxis_title="s_so",
             template="plotly_white",
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     with col2:
         st.subheader("Max Drawdown Heatmap")
@@ -166,10 +180,10 @@ if "grid_results" in st.session_state:
             yaxis_title="s_so",
             template="plotly_white",
         )
-        st.plotly_chart(fig2, use_container_width=True)
+        st.plotly_chart(fig2, width="stretch")
 
     st.subheader("Full Results Table")
     display_df = grid_df.copy()
     display_df["Max DD"] = display_df["Max DD"].map(lambda x: f"{x:.2%}" if pd.notna(x) else "N/A")
     display_df["Total Return"] = display_df["Total Return"].map(lambda x: f"{x:.2%}" if pd.notna(x) else "N/A")
-    st.dataframe(display_df, use_container_width=True)
+    show_df(display_df)

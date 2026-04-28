@@ -80,11 +80,11 @@ cols[3].metric("Short Trades", f"{len(short_trades):,}")
 
 # ── PnL Histogram ──
 st.subheader("PnL Distribution")
-st.plotly_chart(plot_pnl_histogram(trades), use_container_width=True)
+st.plotly_chart(plot_pnl_histogram(trades), width="stretch")
 
 # ── Cumulative PnL ──
 st.subheader("Cumulative Realized PnL")
-st.plotly_chart(plot_cumulative_pnl(trades), use_container_width=True)
+st.plotly_chart(plot_cumulative_pnl(trades), width="stretch")
 
 # ── Long vs Short Cumulative PnL ──
 st.subheader("Long vs Short Performance")
@@ -110,7 +110,7 @@ if not long_trades.empty or not short_trades.empty:
         xaxis_title="Date", yaxis_title="Cumulative PnL ($)",
         template="plotly_white", hovermode="x unified",
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 # ── Holding Period vs Return Scatter ──
 st.subheader("Holding Period vs PnL")
@@ -130,7 +130,7 @@ if not holding.empty:
         yaxis_title="PnL ($)",
         template="plotly_white",
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 # ── Ticker Contribution ──
 st.subheader("PnL by Ticker")
@@ -145,7 +145,7 @@ fig.update_layout(
     xaxis_title="Ticker", yaxis_title="Total PnL ($)",
     template="plotly_white",
 )
-st.plotly_chart(fig, use_container_width=True)
+st.plotly_chart(fig, width="stretch")
 
 # ── Sector Sharpe Breakdown ──
 st.subheader("Per-Sector Sharpe Ratios")
@@ -154,7 +154,7 @@ if not sector_mapping:
     sector_mapping = {t: SECTOR_TO_ETF_MAP.get(t, "XLK") for t in trades["ticker"].unique()}
 st.plotly_chart(
     plot_sector_sharpes(trades, sector_mapping),
-    use_container_width=True,
+    width="stretch",
 )
 
 # ── Annual Performance Breakdown ──
@@ -174,7 +174,7 @@ if not result.equity_curve.empty:
             yaxis_title="Return (%)",
             template="plotly_white",
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
 # ── Transaction Cost Sensitivity ──
 st.subheader("Transaction Cost Sensitivity")
@@ -199,7 +199,7 @@ fig.update_layout(
     yaxis_title="Est. Annualized Return (%)",
     template="plotly_white",
 )
-st.plotly_chart(fig, use_container_width=True)
+st.plotly_chart(fig, width="stretch")
 
 # ── Sector-Level PnL Attribution ──
 st.subheader("Sector-Level PnL Attribution")
@@ -219,4 +219,4 @@ if sector_map and not trades.empty:
         yaxis_title="Total PnL ($)",
         template="plotly_white",
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")

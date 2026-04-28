@@ -13,10 +13,11 @@ from statarb.factors.registry import build_factor_model
 from statarb.backtest.engine import run_backtest
 from app.state import (
     set_config, set_backtest_result, get_backtest_result, has_backtest_result,
-    set_prices, set_volume,
+    set_prices, set_volume, set_engine_inputs,
 )
 from app.components.sidebar import build_sidebar
 from app.components.kpi_cards import render_kpi_cards
+from app.components.df_display import show_df
 from app.components.charts import (
     plot_equity_curve, plot_drawdown, plot_gross_exposure,
     plot_sscore_timeseries,
@@ -35,7 +36,7 @@ st.caption("Avellaneda & Lee (2010) — PCA & ETF Mean-Reversion Strategies")
 config = build_sidebar()
 set_config(config)
 
-if st.sidebar.button("Run Backtest", type="primary", use_container_width=True):
+if st.sidebar.button("Run Backtest", type="primary", width="stretch"):
     with st.spinner("Fetching data..."):
         data_source = get_data_source(config.data_source)
 
@@ -49,30 +50,81 @@ if st.sidebar.button("Run Backtest", type="primary", use_container_width=True):
         volume = volume[[t for t in available if t in volume.columns]]
         returns = returns[[t for t in available if t in returns.columns]]
 
+        # Post-download data-quality diagnostic. `yf.download` silently
+        # returns columns only for tickers that had ANY data in the window,
+        # so comparing requested vs. received tells you how many tickers
+        # are effectively dropped (delisted names that don't exist on the
+        # provider, invalid symbols, etc.).
+        n_req = len(all_tickers)
+        n_got = len(available)
+        missing = [t for t in all_tickers if t not in prices.columns]
+        coverage = returns.notna().sum()
+        n_days = len(returns)
+        full = int((coverage >= n_days * 0.95).sum()) if n_days else 0
+        partial = int(((coverage > 0) & (coverage < n_days * 0.95)).sum()) if n_days else 0
+        med_cov = int(coverage.median()) if n_got else 0
+
+        print("=" * 60)
+        print(f"[data] source={config.data_source}  window={config.start_date} → {config.end_date} ({n_days} trading days)")
+        print(f"[data] tickers requested: {n_req}   returned: {n_got}   dropped: {n_req - n_got}")
+        print(f"[data]   full coverage (≥95%): {full}")
+        print(f"[data]   partial (IPO/delist mid-sample): {partial}")
+        print(f"[data]   median days of data per surviving ticker: {med_cov}")
+        if missing:
+            preview = ", ".join(missing[:15])
+            more = f"  … (+{len(missing) - 15} more)" if len(missing) > 15 else ""
+            print(f"[data] no data returned for {len(missing)} tickers: {preview}{more}")
+        print("=" * 60)
+
+        st.info(
+            f"**Data:** {n_got}/{n_req} tickers returned data  •  "
+            f"{full} full coverage  •  {partial} partial  •  "
+            f"{n_req - n_got} dropped"
+        )
+
         set_prices(prices)
         set_volume(volume)
 
     with st.spinner("Computing sector mappings..."):
-        sector_mapping = get_sector_mapping(available)
+        # Uses TICKER_TO_ETF_OVERRIDES first, then the active data source
+        # (yfinance .info for yfinance runs, CRSP SIC codes for CRSP runs),
+        # then a final "XLY" fallback. No more yfinance-only dependency.
+        sector_mapping = get_sector_mapping(available, data_source=data_source)
 
     with st.spinner("Fitting factor model..."):
         factor_model = build_factor_model(config.factor, sector_mapping, pairs_cfg=config.pairs)
 
         kwargs = {}
-        if config.factor.model_type in ("etf", "combined"):
+        etf_returns_df = None
+        spy_returns_df = None
+
+        # The engine's paper-faithful signal path runs a fresh 60-day OLS
+        # per day, so it needs the factor-return frames directly — not just
+        # the pre-computed residuals from `factor_model.fit`. Fetch ETF and
+        # SPY returns whenever the hedge or the model needs them.
+        needs_etf = (
+            config.factor.model_type in ("etf", "combined")
+            or config.backtest.hedge_instrument == "sector_etf"
+        )
+        needs_spy = (
+            config.factor.model_type in ("combined", "pca")
+            or config.backtest.hedge_instrument == "SPY"
+        )
+
+        if needs_etf:
             etf_tickers = list(set(sector_mapping.values()))
             etf_prices = data_source.fetch_prices(
                 etf_tickers, config.start_date, config.end_date
             )
-            etf_returns = np.log(etf_prices / etf_prices.shift(1)).dropna(how="all")
-            kwargs["etf_returns"] = etf_returns
+            etf_returns_df = np.log(etf_prices / etf_prices.shift(1)).dropna(how="all")
+            kwargs["etf_returns"] = etf_returns_df
 
-        if config.factor.model_type == "combined":
+        if needs_spy:
             spy_prices = data_source.fetch_prices(
                 [MARKET_ETF], config.start_date, config.end_date
             )
-            spy_returns = np.log(spy_prices / spy_prices.shift(1)).dropna(how="all")
-            kwargs["spy_returns"] = spy_returns
+            spy_returns_df = np.log(spy_prices / spy_prices.shift(1)).dropna(how="all")
+            kwargs["spy_returns"] = spy_returns_df
 
         if config.factor.model_type == "pairs":
             kwargs["prices"] = prices
@@ -83,8 +135,13 @@ if st.sidebar.button("Run Backtest", type="primary", use_container_width=True):
         if config.factor.model_type == "pairs":
             pair_prices = {}
             for col in factor_result.residuals.columns:
+                # cumsum skips NaN by default, so leading NaN rows (the
+                # formation period before rolling β kicks in) stay NaN.
                 cs = factor_result.residuals[col].cumsum()
-                pair_prices[col] = 100 * np.exp(cs - cs.iloc[0])
+                first_finite = cs.dropna()
+                if first_finite.empty:
+                    continue
+                pair_prices[col] = 100 * np.exp(cs - first_finite.iloc[0])
             bt_prices = pd.DataFrame(pair_prices)
             bt_volume = pd.DataFrame(
                 np.ones(bt_prices.shape), index=bt_prices.index, columns=bt_prices.columns
@@ -93,8 +150,25 @@ if st.sidebar.button("Run Backtest", type="primary", use_container_width=True):
             bt_prices = prices
             bt_volume = volume
 
-        result = run_backtest(config, bt_prices, bt_volume, factor_result)
+        # For the pairs path, the universe traded is the SYNTHETIC pair
+        # series ("T1_T2" columns), not the underlying stocks. The engine
+        # must derive returns from `bt_prices` (the synthetic frame) so
+        # `returns.columns` matches `prices.columns`. Passing the original
+        # stock-returns frame here produces an empty intersection and
+        # collapses every diagnostic to NaN.
+        bt_returns = None if config.factor.model_type == "pairs" else returns
+        result = run_backtest(
+            config,
+            bt_prices,
+            bt_volume,
+            factor_result,
+            returns=bt_returns,
+            etf_returns=etf_returns_df,
+            spy_returns=spy_returns_df,
+            sector_mapping=sector_mapping,
+        )
         set_backtest_result(result)
+        set_engine_inputs(returns, etf_returns_df, spy_returns_df, sector_mapping)
 
     st.success(
         f"Backtest complete: {result.metrics.num_trades} trades, "
@@ -111,17 +185,17 @@ if has_backtest_result():
     with col1:
         st.plotly_chart(
             plot_equity_curve(result.equity_curve),
-            use_container_width=True,
+            width="stretch",
         )
     with col2:
         st.plotly_chart(
             plot_drawdown(result.equity_curve),
-            use_container_width=True,
+            width="stretch",
         )
 
     st.plotly_chart(
         plot_gross_exposure(result.daily_positions, result.equity_curve),
-        use_container_width=True,
+        width="stretch",
     )
 
     st.subheader("Current S-Scores")
@@ -145,9 +219,8 @@ if has_backtest_result():
                 return "background-color: rgba(214, 39, 40, 0.3)"
             return ""
 
-        st.dataframe(
-            sscore_df.style.applymap(color_signal, subset=["Signal"]),
-            use_container_width=True,
+        show_df(
+            sscore_df.style.map(color_signal, subset=["Signal"]),
             height=400,
         )
 
@@ -163,7 +236,7 @@ if has_backtest_result():
                     plot_sscore_timeseries(
                         ticker_sscores, selected_ticker, config.signal
                     ),
-                    use_container_width=True,
+                    width="stretch",
                 )
 
             if not result.trades.empty:
@@ -172,7 +245,7 @@ if has_backtest_result():
                 ]
                 if not ticker_trades.empty:
                     st.write(f"**Trades for {selected_ticker}:**")
-                    st.dataframe(ticker_trades, use_container_width=True)
+                    show_df(ticker_trades)
 
     st.subheader("Annual Performance")
     eq = result.equity_curve
@@ -183,6 +256,6 @@ if has_backtest_result():
             "Year": yearly_ret.index.year,
             "Return": [f"{r:.1%}" for r in yearly_ret.values],
         })
-        st.dataframe(ann_df, use_container_width=True)
+        show_df(ann_df)
 else:
     st.info("Configure parameters in the sidebar and click **Run Backtest** to begin.")

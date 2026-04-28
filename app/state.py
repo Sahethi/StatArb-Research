@@ -38,3 +38,20 @@ def get_volume() -> "pd.DataFrame | None":
 
 def set_volume(volume):
     st.session_state["volume"] = volume
+
+
+def set_engine_inputs(returns, etf_returns, spy_returns, sector_mapping):
+    """Cache the auxiliary frames the paper-faithful engine needs per day."""
+    st.session_state["engine_returns"] = returns
+    st.session_state["engine_etf_returns"] = etf_returns
+    st.session_state["engine_spy_returns"] = spy_returns
+    st.session_state["engine_sector_mapping"] = sector_mapping
+
+
+def get_engine_inputs():
+    return (
+        st.session_state.get("engine_returns"),
+        st.session_state.get("engine_etf_returns"),
+        st.session_state.get("engine_spy_returns"),
+        st.session_state.get("engine_sector_mapping"),
+    )

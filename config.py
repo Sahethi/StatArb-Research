@@ -376,6 +376,28 @@ MODERN_TICKERS: List[str] = [
 
     # --- Misc / industrial tech ---
     "IEX", "GRMN", "TRMB", "CGNX",
+
+    # --- Additional arnav/main tickers ---
+    "CRUS", "NTAP", "FFIV", "CTSH", "ACN", "EFX", "BR", "BOKF",
+    "WBS", "ONB", "WTFC", "ALKS", "XYL", "GNRC", "STAG", "CSCO",
+    "IBM", "HPQ", "HPE", "WDC", "STX", "JNPR", "AKAM", "CDW",
+    "SWK", "TXT", "NVT", "FBIN", "SCI", "STE", "CHE", "ATR",
+    "SITE", "BMI", "LECO", "HRB", "WEX", "LDOS", "SAIC", "ALLY",
+    "CBSH", "FFIN", "OFG", "PBCT", "HTLF", "INDB", "WSFS", "ERIE",
+    "NYCB", "VLY", "FNB", "GBCI", "UBSI", "RNST", "SFNC", "FHI",
+    "ROL", "GEO", "CXW", "MGR", "WSM", "FL", "GPS", "ANF",
+    "BJRI", "CBRL", "BLMN", "RCII", "LEN", "PHM", "TOL", "KBH",
+    "MDC", "NVR", "TMHC", "AMED", "LHCG", "EXEL", "SGEN", "HZNP",
+    "ENSG", "MYRG", "RGEN", "ITCI", "XNCR", "EPAM", "NUAN", "IRBT",
+    "VIAV", "PLXS", "SANM", "MKSI", "BRKS", "FORM", "RMBS", "TREX",
+    "AAON", "RRX", "EXPO", "AWI", "GATX", "WERN", "MRTN", "HTLD",
+    "MRC", "ASTE", "SXT", "HEES", "CLB", "VNOM", "SMG", "GPK",
+    "HWKN", "NEU", "IOSP", "OGE", "PNM", "ALE", "IDA", "MGEE",
+    "NJR", "NWN", "AVA", "HE", "HIW", "CUZ", "KRC", "BDN",
+    "LTC", "DEI", "ROIC", "EQC", "IPG", "OMC", "NYT", "NXST",
+    "GHC", "MGRC", "MSA", "BWLD", "DIN", "ALLE", "KEYS", "PEGA",
+    "MANH", "SSNC", "AZPN", "ACLS", "MTSI", "RHI", "MAN", "KFY",
+    "EXLS", "ICUI", "NHC", "HCI", "CACC", "ORI",
 ]
 # ─────────────────────────────────────────────────────────────────────────────
 # DEFAULT_TICKERS = MODERN_TICKERS
