@@ -241,7 +241,7 @@ MID_ERA_TICKERS: List[str] = [
     "FISV", "GWW", "ROK", "SWK", "SNA", "IR", "MAS", "LEG",
     "JCI", "PNR", "XYL", "APH", "TEL", "GLW", "AVY", "CINF",
     "CHRW", "EXPD", "JBHT", "HAS", "MAT", "HRL", "CAG", "CPB",
-    "CLX", "EL", "MKC", "TAP", "BF.B", "DEO", "SYY", "TSN",
+    "CLX", "EL", "MKC", "TAP", "BFB", "DEO", "SYY", "TSN",
     "ADM", "BG", "LUV", "DAL", "UAL", "AAL", "PHM", "DHI",
     "LEN", "TOL", "NVR", "PCLN", "EXPE", "TRIP", "WYNN", "LVS",
     "MGM", "CCL", "RCL", "HOG", "HAR", "WHR", "PBI", "RHI",
