@@ -202,6 +202,58 @@ PAPER_TICKERS: List[str] = [
 DEFAULT_TICKERS = PAPER_TICKERS
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Mid-era universe (~2007-2013, ~300 names)
+#
+# Curated as a bridge between the paper-era universe and the modern universe.
+# It keeps the large liquid names that were active through the financial-crisis
+# and early post-crisis sample, including major acquired/delisted names from
+# that window. The list is deduped in first-seen order.
+#
+# To use it, swap this block in for DEFAULT_TICKERS:
+#     DEFAULT_TICKERS = MID_ERA_TICKERS
+# ─────────────────────────────────────────────────────────────────────────────
+MID_ERA_TICKERS: List[str] = [
+    "AAPL", "MSFT", "IBM", "ORCL", "INTC", "CSCO", "QCOM", "TXN",
+    "AMAT", "KLAC", "ADI", "NVDA", "HPQ", "DELL", "EMC", "CTXS",
+    "ADSK", "CRM", "EBAY", "YHOO", "GOOG", "AMZN", "FFIV", "JNPR",
+    "BRCM", "SNDK", "XLNX", "CA", "NTAP", "RHT", "AKAM", "VRSN",
+    "CHKP", "SYMC", "JNJ", "PFE", "MRK", "BMY", "LLY", "ABT",
+    "AMGN", "GILD", "CELG", "BIIB", "BAX", "MDT", "SYK", "ZBH",
+    "BDX", "HUM", "UNH", "CI", "CVS", "ESRX", "WAT", "DGX",
+    "LH", "VAR", "GE", "HON", "UTX", "BA", "CAT", "DE",
+    "EMR", "ETN", "DOV", "ITW", "MMM", "CMI", "PH", "TXT",
+    "LMT", "NOC", "GD", "RTN", "UPS", "FDX", "UNP", "NSC",
+    "CSX", "KSU", "WM", "RSG", "FAST", "XOM", "CVX", "COP",
+    "OXY", "APC", "EOG", "SLB", "HAL", "BHI", "NOV", "APA",
+    "PXD", "DVN", "MRO", "HES", "KMI", "WMB", "PG", "KO",
+    "PEP", "CL", "KMB", "GIS", "K", "SJM", "HSY", "KRFT",
+    "MO", "PM", "WMT", "COST", "TGT", "WAG", "KR", "MCD",
+    "SBUX", "NKE", "HD", "LOW", "BBY", "TJX", "ROST", "DIS",
+    "CMCSA", "TWX", "VIAB", "CBS", "DRI", "YUM", "MAR", "HOT",
+    "NEE", "DUK", "SO", "EXC", "AEP", "D", "PEG", "ED",
+    "FE", "ETR", "PPL", "XEL", "DD", "DOW", "MON", "FCX",
+    "NUE", "AA", "APD", "ECL", "PX", "SHW", "PPG", "CF",
+    "MOS", "POT", "T", "VZ", "Q", "S", "WIN", "JPM",
+    "WFC", "BAC", "USB", "PNC", "BK", "STT", "NTRS", "AXP",
+    "COF", "SCHW", "CME", "ICE", "SPGI", "MCO", "BLK", "GS",
+    "MS", "BEN", "TROW", "AMP", "PRU", "MET", "ALL", "TRV",
+    "CB", "AON", "MMC", "AFL", "ADP", "PAYX", "INTU", "FIS",
+    "FISV", "GWW", "ROK", "SWK", "SNA", "IR", "MAS", "LEG",
+    "JCI", "PNR", "XYL", "APH", "TEL", "GLW", "AVY", "CINF",
+    "CHRW", "EXPD", "JBHT", "HAS", "MAT", "HRL", "CAG", "CPB",
+    "CLX", "EL", "MKC", "TAP", "BF.B", "DEO", "SYY", "TSN",
+    "ADM", "BG", "LUV", "DAL", "UAL", "AAL", "PHM", "DHI",
+    "LEN", "TOL", "NVR", "PCLN", "EXPE", "TRIP", "WYNN", "LVS",
+    "MGM", "CCL", "RCL", "HOG", "HAR", "WHR", "PBI", "RHI",
+    "URI", "FLS", "FLR", "NEM", "ABX", "GOLD", "ATI", "AKS",
+    "X", "IP", "BALL", "SEE", "PKG", "WRK", "VMC", "MLM",
+    "EXP", "CXO", "CHK", "SWN", "RRC", "EQT", "OKE", "BXP",
+    "VNO", "SLG", "HCP", "VTR", "HST", "SPG", "PSA", "PLD",
+    "AVB", "EQR", "ESS", "UDR", "ARE", "DRE", "REG", "FRT",
+    "KIM", "MAC",
+]
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Modern-era universe (~2014-2025, ~400 names)
 #
 # Curated for backtests starting roughly 2014. Includes:

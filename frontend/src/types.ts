@@ -145,6 +145,7 @@ export interface GridResponse {
 export interface DefaultsResponse {
   default_tickers: string[];
   paper_tickers_count: number;
+  mid_era_tickers_count: number;
   modern_tickers_count: number;
   data_sources: string[];
   model_types: { value: ModelType; label: string }[];

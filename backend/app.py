@@ -35,7 +35,7 @@ from config import (  # noqa: E402
     Config, FactorConfig, OUConfig, SignalConfig, VolumeConfig,
     BacktestConfig, PairsConfig, VolTargetConfig, HMMConfig,
     DEFAULT_TICKERS, DATA_SOURCES, MARKET_ETF,
-    PAPER_TICKERS, MODERN_TICKERS,
+    PAPER_TICKERS, MID_ERA_TICKERS, MODERN_TICKERS,
 )
 from statarb.data.universe import get_data_source, get_sector_mapping  # noqa: E402
 from statarb.factors.registry import build_factor_model  # noqa: E402
@@ -197,6 +197,7 @@ def get_defaults():
     return {
         "default_tickers": DEFAULT_TICKERS,
         "paper_tickers_count": len(PAPER_TICKERS),
+        "mid_era_tickers_count": len(MID_ERA_TICKERS),
         "modern_tickers_count": len(MODERN_TICKERS),
         "data_sources": DATA_SOURCES,
         "model_types": [
@@ -209,6 +210,7 @@ def get_defaults():
         "ticker_presets": {
             "default": DEFAULT_TICKERS,
             "paper": PAPER_TICKERS,
+            "mid_era": MID_ERA_TICKERS,
             "modern": MODERN_TICKERS,
         },
     }
