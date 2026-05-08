@@ -9,6 +9,8 @@ interface Props {
 
 type AdvTab = "factor" | "ou" | "signal" | "exec" | "ext";
 
+const PRESET_ORDER = ["default", "paper", "mid_era", "modern"];
+
 export default function ConfigPanel({ defaults, onRun, busy }: Props) {
   const [tickersText, setTickersText] = useState(defaults.default_tickers.join(", "));
   const [advOpen, setAdvOpen] = useState(false);
@@ -51,7 +53,16 @@ export default function ConfigPanel({ defaults, onRun, busy }: Props) {
   }
 
   const presetButtons = useMemo(
-    () => Object.entries(defaults.ticker_presets),
+    () => {
+      const entries = Object.entries(defaults.ticker_presets);
+      const byName = new Map(entries);
+      return [
+        ...PRESET_ORDER
+          .filter((name) => byName.has(name))
+          .map((name) => [name, byName.get(name)!] as [string, string[]]),
+        ...entries.filter(([name]) => !PRESET_ORDER.includes(name)),
+      ];
+    },
     [defaults.ticker_presets]
   );
 
@@ -139,7 +150,7 @@ export default function ConfigPanel({ defaults, onRun, busy }: Props) {
             {presetButtons.map(([name]) => (
               <button key={name} className="btn-ghost"
                 onClick={() => setTickersText(defaults.ticker_presets[name].join(", "))}>
-                {name}
+                {presetLabel(name)}
               </button>
             ))}
           </div>
@@ -352,6 +363,12 @@ function modelBlurb(m: ModelType) {
     combined: "SPY → sector ETF → PCA stack",
     pairs: "Cointegrated stock pairs",
   }[m];
+}
+
+function presetLabel(name: string) {
+  if (name === "mid_era") return "mid era";
+  if (name === "modern") return "new era";
+  return name.replaceAll("_", " ");
 }
 
 function ModelIcon({ model, active }: { model: ModelType; active: boolean }) {

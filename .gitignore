@@ -48,7 +48,7 @@ htmlcov/
 .streamlit/secrets.toml
 
 # Project-specific data / artifacts
-data/
+/data/
 *.parquet
 *.feather
 *.h5
@@ -63,6 +63,7 @@ results/
 outputs/
 runs/
 checkpoints/
+.cache/
 *.log
 
 # WRDS / pgpass

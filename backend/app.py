@@ -6,16 +6,19 @@ modules — no trading / signal / model logic lives here.
 """
 from __future__ import annotations
 
+import hashlib
+import json
+import logging
 import os
+import pickle
+import queue
 import sys
-from typing import List, Optional
+import threading
+from pathlib import Path
+from typing import Any, Callable, List, Optional
 
 import numpy as np
 import pandas as pd
-import json
-import queue
-import threading
-from typing import Callable
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -32,7 +35,7 @@ from config import (  # noqa: E402
     Config, FactorConfig, OUConfig, SignalConfig, VolumeConfig,
     BacktestConfig, PairsConfig, VolTargetConfig, HMMConfig,
     DEFAULT_TICKERS, DATA_SOURCES, MARKET_ETF,
-    PAPER_TICKERS, MODERN_TICKERS,
+    PAPER_TICKERS, MID_ERA_TICKERS, MODERN_TICKERS,
 )
 from statarb.data.universe import get_data_source, get_sector_mapping  # noqa: E402
 from statarb.factors.registry import build_factor_model  # noqa: E402
@@ -47,6 +50,51 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+logger = logging.getLogger(__name__)
+
+CACHE_VERSION = "api-cache-v1"
+CACHE_DIR = Path(os.getenv("STATARB_CACHE_DIR", Path(ROOT) / ".cache" / "api"))
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _stable_hash(payload: dict[str, Any]) -> str:
+    raw = json.dumps(
+        {"version": CACHE_VERSION, "payload": payload},
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
+
+
+def _cache_path(key: str) -> Path:
+    return CACHE_DIR / f"{key}.pkl"
+
+
+def _cache_load(key: str) -> Any | None:
+    path = _cache_path(key)
+    if not path.exists():
+        return None
+    try:
+        with path.open("rb") as f:
+            return pickle.load(f)
+    except Exception as exc:
+        logger.warning("Dropping unreadable cache entry %s: %s", path.name, exc)
+        path.unlink(missing_ok=True)
+        return None
+
+
+def _cache_save(key: str, value: Any) -> None:
+    path = _cache_path(key)
+    tmp_path = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
+    try:
+        with tmp_path.open("wb") as f:
+            pickle.dump(value, f, protocol=pickle.HIGHEST_PROTOCOL)
+        os.replace(tmp_path, path)
+    except Exception as exc:
+        logger.warning("Failed to write cache entry %s: %s", path.name, exc)
+        tmp_path.unlink(missing_ok=True)
 
 
 class BacktestRequest(BaseModel):
@@ -101,6 +149,44 @@ class BacktestRequest(BaseModel):
     vol_target_cap: float = 5.0
 
 
+def _request_dict(req: BaseModel) -> dict[str, Any]:
+    return req.model_dump() if hasattr(req, "model_dump") else req.dict()
+
+
+def _cache_key_data(req: BacktestRequest) -> str:
+    return "data_" + _stable_hash({
+        "data_source": req.data_source,
+        "tickers": list(req.tickers),
+        "start_date": req.start_date,
+        "end_date": req.end_date,
+    })
+
+
+def _cache_key_factor(req: BacktestRequest, data_key: str) -> str:
+    return "factor_" + _stable_hash({
+        "data_key": data_key,
+        "model_type": req.model_type,
+        "pca_lookback": req.pca_lookback,
+        "pca_n_components": req.pca_n_components,
+        "explained_variance_threshold": req.explained_variance_threshold,
+        "use_ledoit_wolf": req.use_ledoit_wolf,
+        "beta_rolling_window": req.beta_rolling_window,
+        "hedge_instrument": req.hedge_instrument,
+        "pairs_pvalue": req.pairs_pvalue,
+        "pairs_max": req.pairs_max,
+        "pairs_min_hl": req.pairs_min_hl,
+        "pairs_max_hl": req.pairs_max_hl,
+    })
+
+
+def _cache_key_result(req: BacktestRequest) -> str:
+    return "result_" + _stable_hash(_request_dict(req))
+
+
+def _cache_key_grid(req: "GridRequest") -> str:
+    return "grid_" + _stable_hash(_request_dict(req))
+
+
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
@@ -111,6 +197,7 @@ def get_defaults():
     return {
         "default_tickers": DEFAULT_TICKERS,
         "paper_tickers_count": len(PAPER_TICKERS),
+        "mid_era_tickers_count": len(MID_ERA_TICKERS),
         "modern_tickers_count": len(MODERN_TICKERS),
         "data_sources": DATA_SOURCES,
         "model_types": [
@@ -123,9 +210,41 @@ def get_defaults():
         "ticker_presets": {
             "default": DEFAULT_TICKERS,
             "paper": PAPER_TICKERS,
+            "mid_era": MID_ERA_TICKERS,
             "modern": MODERN_TICKERS,
         },
     }
+
+
+@app.get("/api/cache")
+def cache_info():
+    entries = []
+    total_bytes = 0
+    for path in sorted(CACHE_DIR.glob("*.pkl")):
+        stat = path.stat()
+        total_bytes += stat.st_size
+        cache_type = path.stem.split("_", 1)[0]
+        entries.append({
+            "file": path.name,
+            "type": cache_type,
+            "size_mb": round(stat.st_size / 1_000_000, 3),
+            "modified": pd.Timestamp(stat.st_mtime, unit="s").isoformat(),
+        })
+    return {
+        "directory": str(CACHE_DIR),
+        "count": len(entries),
+        "total_mb": round(total_bytes / 1_000_000, 3),
+        "entries": entries,
+    }
+
+
+@app.delete("/api/cache")
+def cache_clear():
+    cleared = 0
+    for path in CACHE_DIR.glob("*.pkl"):
+        path.unlink(missing_ok=True)
+        cleared += 1
+    return {"cleared": cleared}
 
 
 def _build_config(req: BacktestRequest) -> Config:
@@ -185,39 +304,111 @@ def _build_config(req: BacktestRequest) -> Config:
     )
 
 
-def _execute_backtest(
-    req: BacktestRequest,
-    progress: Callable[[str, str, float], None] | None = None,
-) -> dict:
-    """Run the full backtest pipeline, calling `progress(stage, message, pct)`
-    at each milestone. Returns the JSON-serialisable response payload."""
-    p = progress or (lambda *_: None)
-
-    p("config", "Building configuration…", 0.02)
-    config = _build_config(req)
-
-    p("fetch_data", "Fetching prices, volume and returns…", 0.08)
-    data_source = get_data_source(config.data_source)
-    all_tickers = config.tickers
-    prices = data_source.fetch_prices(all_tickers, config.start_date, config.end_date)
-    volume = data_source.fetch_volume(all_tickers, config.start_date, config.end_date)
-    returns = data_source.fetch_returns(all_tickers, config.start_date, config.end_date)
-
-    available = [t for t in all_tickers if t in prices.columns]
+def _select_available_frames(
+    prices: pd.DataFrame,
+    volume: pd.DataFrame,
+    returns: pd.DataFrame,
+    tickers: list[str],
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, list[str]]:
+    available = [t for t in tickers if t in prices.columns]
     prices = prices[available]
     volume = volume[[t for t in available if t in volume.columns]]
     returns = returns[[t for t in available if t in returns.columns]]
-    p("universe", f"Universe ready: {len(available)}/{len(all_tickers)} tickers loaded.", 0.18)
+    return prices, volume, returns, available
 
-    p("sector_map", "Resolving sector mapping…", 0.22)
+
+def _load_or_fetch_data(
+    req: BacktestRequest,
+    config: Config,
+    data_source,
+    progress: Callable[[str, str, float], None],
+) -> dict[str, Any]:
+    data_key = _cache_key_data(req)
+    cached = _cache_load(data_key)
+    if isinstance(cached, dict) and {"prices", "volume", "returns"} <= set(cached):
+        prices, volume, returns, available = _select_available_frames(
+            cached["prices"],
+            cached["volume"],
+            cached["returns"],
+            config.tickers,
+        )
+        sector_mapping = dict(cached.get("sector_mapping") or {})
+        missing = [t for t in available if t not in sector_mapping]
+        if missing:
+            sector_mapping.update(get_sector_mapping(missing, data_source=data_source))
+        progress(
+            "data_cache",
+            f"Market data loaded from cache ({len(available)} tickers).",
+            0.18,
+        )
+        return {
+            "data_key": data_key,
+            "prices": prices,
+            "volume": volume,
+            "returns": returns,
+            "available": available,
+            "sector_mapping": sector_mapping,
+        }
+
+    progress("fetch_data", "Fetching prices and volume…", 0.08)
+    prices = data_source.fetch_prices(
+        config.tickers, config.start_date, config.end_date
+    )
+    volume = data_source.fetch_volume(
+        config.tickers, config.start_date, config.end_date
+    )
+    returns = np.log(prices / prices.shift(1)).dropna(how="all")
+
+    prices, volume, returns, available = _select_available_frames(
+        prices, volume, returns, config.tickers
+    )
+    progress(
+        "universe",
+        f"Universe ready: {len(available)}/{len(config.tickers)} tickers loaded.",
+        0.18,
+    )
+
+    progress("sector_map", "Resolving sector mapping…", 0.22)
     sector_mapping = get_sector_mapping(available, data_source=data_source)
 
-    p("build_factor_model", f"Building {config.factor.model_type.upper()} factor model…", 0.28)
+    payload = {
+        "prices": prices,
+        "volume": volume,
+        "returns": returns,
+        "sector_mapping": sector_mapping,
+    }
+    _cache_save(data_key, payload)
+
+    return {
+        "data_key": data_key,
+        **payload,
+        "available": available,
+    }
+
+
+def _fit_and_cache_factor(
+    req: BacktestRequest,
+    config: Config,
+    data_source,
+    data: dict[str, Any],
+    progress: Callable[[str, str, float], None],
+) -> dict[str, Any]:
+    factor_key = _cache_key_factor(req, data["data_key"])
+    prices = data["prices"]
+    volume = data["volume"]
+    returns = data["returns"]
+    sector_mapping = data["sector_mapping"]
+
+    progress(
+        "build_factor_model",
+        f"Building {config.factor.model_type.upper()} factor model…",
+        0.28,
+    )
     factor_model = build_factor_model(
         config.factor, sector_mapping, pairs_cfg=config.pairs
     )
 
-    kwargs: dict = {}
+    kwargs: dict[str, Any] = {}
     etf_returns_df = None
     spy_returns_df = None
     needs_etf = (
@@ -230,9 +421,9 @@ def _execute_backtest(
     )
 
     if needs_etf or needs_spy:
-        p("fetch_factors", "Fetching ETF / SPY reference series…", 0.34)
+        progress("fetch_factors", "Fetching ETF / SPY reference series…", 0.34)
     if needs_etf:
-        etf_tickers = list(set(sector_mapping.values()))
+        etf_tickers = sorted(set(sector_mapping.values()))
         etf_prices = data_source.fetch_prices(
             etf_tickers, config.start_date, config.end_date
         )
@@ -247,7 +438,11 @@ def _execute_backtest(
     if config.factor.model_type == "pairs":
         kwargs["prices"] = prices
 
-    p("fit_factor_model", "Fitting factor model (rolling PCA / OLS / cointegration)…", 0.42)
+    progress(
+        "fit_factor_model",
+        "Fitting factor model (rolling PCA / OLS / cointegration)…",
+        0.42,
+    )
     factor_result = factor_model.fit(returns, **kwargs)
 
     if config.factor.model_type == "pairs":
@@ -269,6 +464,81 @@ def _execute_backtest(
         bt_prices = prices
         bt_volume = volume
         bt_returns = returns
+
+    payload = {
+        "factor_result": factor_result,
+        "bt_prices": bt_prices,
+        "bt_volume": bt_volume,
+        "bt_returns": bt_returns,
+        "etf_returns_df": etf_returns_df,
+        "spy_returns_df": spy_returns_df,
+        "available": data["available"],
+        "sector_mapping": sector_mapping,
+    }
+    _cache_save(factor_key, payload)
+    return {"factor_key": factor_key, **payload}
+
+
+def _prepare_backtest_inputs(
+    req: BacktestRequest,
+    config: Config,
+    data_source,
+    progress: Callable[[str, str, float], None],
+) -> dict[str, Any]:
+    data_key = _cache_key_data(req)
+    factor_key = _cache_key_factor(req, data_key)
+    cached_factor = _cache_load(factor_key)
+    required = {
+        "factor_result", "bt_prices", "bt_volume", "bt_returns",
+        "etf_returns_df", "spy_returns_df", "available", "sector_mapping",
+    }
+    if isinstance(cached_factor, dict) and required <= set(cached_factor):
+        progress(
+            "factor_cache",
+            "Data and factor model loaded from cache.",
+            0.55,
+        )
+        return {
+            "data_key": data_key,
+            "factor_key": factor_key,
+            **cached_factor,
+        }
+
+    data = _load_or_fetch_data(req, config, data_source, progress)
+    return {
+        "data_key": data["data_key"],
+        **_fit_and_cache_factor(req, config, data_source, data, progress),
+    }
+
+
+def _execute_backtest(
+    req: BacktestRequest,
+    progress: Callable[[str, str, float], None] | None = None,
+) -> dict:
+    """Run the full backtest pipeline, calling `progress(stage, message, pct)`
+    at each milestone. Returns the JSON-serialisable response payload."""
+    p = progress or (lambda *_: None)
+
+    result_key = _cache_key_result(req)
+    cached_result = _cache_load(result_key)
+    if isinstance(cached_result, dict):
+        p("result_cache", "Backtest result loaded from cache.", 1.0)
+        return cached_result
+
+    p("config", "Building configuration…", 0.02)
+    config = _build_config(req)
+    data_source = get_data_source(config.data_source)
+    all_tickers = config.tickers
+    prepared = _prepare_backtest_inputs(req, config, data_source, p)
+
+    factor_result = prepared["factor_result"]
+    bt_prices = prepared["bt_prices"]
+    bt_volume = prepared["bt_volume"]
+    bt_returns = prepared["bt_returns"]
+    etf_returns_df = prepared["etf_returns_df"]
+    spy_returns_df = prepared["spy_returns_df"]
+    available = prepared["available"]
+    sector_mapping = prepared["sector_mapping"]
 
     p(
         "run_backtest",
@@ -376,8 +646,7 @@ def _execute_backtest(
             })
 
     m = result.metrics
-    p("done", "Backtest complete.", 1.0)
-    return {
+    response = {
         "metrics": {
             "total_return": float(m.total_return),
             "annualized_return": float(m.annualized_return),
@@ -419,6 +688,9 @@ def _execute_backtest(
             if result.regime_proba is not None else []
         ),
     }
+    _cache_save(result_key, response)
+    p("done", "Backtest complete.", 1.0)
+    return response
 
 
 @app.post("/api/backtest")
@@ -427,7 +699,6 @@ def run_backtest_endpoint(req: BacktestRequest):
         return _execute_backtest(req)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 
 @app.post("/api/backtest/stream")
 def run_backtest_stream(req: BacktestRequest):
@@ -544,72 +815,22 @@ class GridRequest(BacktestRequest):
 @app.post("/api/grid-search")
 def grid_search(req: GridRequest):
     try:
+        grid_key = _cache_key_grid(req)
+        cached_grid = _cache_load(grid_key)
+        if isinstance(cached_grid, dict):
+            return cached_grid
+
         config = _build_config(req)
-
         ds = get_data_source(config.data_source)
-        all_tickers = config.tickers
-        prices = ds.fetch_prices(all_tickers, config.start_date, config.end_date)
-        volume = ds.fetch_volume(all_tickers, config.start_date, config.end_date)
-        returns = ds.fetch_returns(all_tickers, config.start_date, config.end_date)
+        prepared = _prepare_backtest_inputs(req, config, ds, lambda *_: None)
 
-        available = [t for t in all_tickers if t in prices.columns]
-        prices = prices[available]
-        volume = volume[[t for t in available if t in volume.columns]]
-        returns = returns[[t for t in available if t in returns.columns]]
-
-        sector_mapping = get_sector_mapping(available, data_source=ds)
-        factor_model = build_factor_model(
-            config.factor, sector_mapping, pairs_cfg=config.pairs
-        )
-
-        kwargs: dict = {}
-        etf_returns_df = None
-        spy_returns_df = None
-        needs_etf = (
-            config.factor.model_type in ("etf", "combined")
-            or config.backtest.hedge_instrument == "sector_etf"
-        )
-        needs_spy = (
-            config.factor.model_type in ("combined", "pca")
-            or config.backtest.hedge_instrument == "SPY"
-        )
-        if needs_etf:
-            etf_tickers = list(set(sector_mapping.values()))
-            etf_prices = ds.fetch_prices(
-                etf_tickers, config.start_date, config.end_date
-            )
-            etf_returns_df = np.log(etf_prices / etf_prices.shift(1)).dropna(how="all")
-            kwargs["etf_returns"] = etf_returns_df
-        if needs_spy:
-            spy_prices = ds.fetch_prices(
-                [MARKET_ETF], config.start_date, config.end_date
-            )
-            spy_returns_df = np.log(spy_prices / spy_prices.shift(1)).dropna(how="all")
-            kwargs["spy_returns"] = spy_returns_df
-        if config.factor.model_type == "pairs":
-            kwargs["prices"] = prices
-
-        factor_result = factor_model.fit(returns, **kwargs)
-
-        if config.factor.model_type == "pairs":
-            pair_prices = {}
-            for col in factor_result.residuals.columns:
-                cs = factor_result.residuals[col].cumsum()
-                first_finite = cs.dropna()
-                if first_finite.empty:
-                    continue
-                pair_prices[col] = 100 * np.exp(cs - first_finite.iloc[0])
-            bt_prices = pd.DataFrame(pair_prices)
-            bt_volume = pd.DataFrame(
-                np.ones(bt_prices.shape),
-                index=bt_prices.index,
-                columns=bt_prices.columns,
-            )
-            bt_returns = None
-        else:
-            bt_prices = prices
-            bt_volume = volume
-            bt_returns = returns
+        factor_result = prepared["factor_result"]
+        bt_prices = prepared["bt_prices"]
+        bt_volume = prepared["bt_volume"]
+        bt_returns = prepared["bt_returns"]
+        etf_returns_df = prepared["etf_returns_df"]
+        spy_returns_df = prepared["spy_returns_df"]
+        sector_mapping = prepared["sector_mapping"]
 
         cells = []
         import copy as _copy
@@ -636,11 +857,13 @@ def grid_search(req: GridRequest):
 
         # Best by Sharpe.
         best = max(cells, key=lambda c: c["sharpe"]) if cells else None
-        return {
+        response = {
             "s_bo_values": req.s_bo_values,
             "s_so_values": req.s_so_values,
             "cells": cells,
             "best": best,
         }
+        _cache_save(grid_key, response)
+        return response
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
