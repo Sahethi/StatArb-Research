@@ -56,7 +56,7 @@ export default function App() {
           <LoadingShell />
         ) : (
           <>
-            {page === "backtest" && (
+            <div style={{ display: page === "backtest" ? undefined : "none" }}>
               <BacktestPage
                 defaults={defaults}
                 result={result}
@@ -65,11 +65,19 @@ export default function App() {
                 error={error}
                 onRun={onRun}
               />
-            )}
-            {page === "trades" && <TradesPage r={result} />}
-            {page === "diagnostics" && <DiagnosticsPage r={result} />}
-            {page === "cointegration" && <CointegrationPage baseReq={lastReq} />}
-            {page === "grid" && <GridSearchPage baseReq={lastReq} />}
+            </div>
+            <div style={{ display: page === "trades" ? undefined : "none" }}>
+              <TradesPage r={result} />
+            </div>
+            <div style={{ display: page === "diagnostics" ? undefined : "none" }}>
+              <DiagnosticsPage r={result} />
+            </div>
+            <div style={{ display: page === "cointegration" ? undefined : "none" }}>
+              <CointegrationPage baseReq={lastReq} />
+            </div>
+            <div style={{ display: page === "grid" ? undefined : "none" }}>
+              <GridSearchPage baseReq={lastReq} />
+            </div>
           </>
         )}
       </main>
