@@ -1,5 +1,6 @@
 """CRSP data source via WRDS."""
 import os
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -11,12 +12,35 @@ from .base import DataSource
 load_dotenv()
 
 
+WRDS_HOST = "wrds-pgdata.wharton.upenn.edu"
+WRDS_PORT = 9737
+WRDS_DB = "wrds"
+
+
+def _ensure_pgpass(username: str, password: str) -> None:
+    """Write WRDS credentials to ~/.pgpass so wrds.Connection() can auth
+    non-interactively in containers without a TTY.
+
+    Idempotent — replaces any existing WRDS line to keep passwords current."""
+    pgpass = Path.home() / ".pgpass"
+    entry = f"{WRDS_HOST}:{WRDS_PORT}:{WRDS_DB}:{username}:{password}"
+
+    existing = pgpass.read_text().splitlines() if pgpass.exists() else []
+    kept = [line for line in existing if not line.startswith(f"{WRDS_HOST}:")]
+    kept.append(entry)
+    pgpass.write_text("\n".join(kept) + "\n")
+    pgpass.chmod(0o600)
+
+
 class CRSPSource(DataSource):
     """
     Data source using CRSP daily stock data via the WRDS database.
 
-    Requires WRDS_USERNAME and WRDS_PASSWORD in the .env file.
-    Uses the wrds Python library to connect and query.
+    Authentication:
+      - Set WRDS_USERNAME and WRDS_PASSWORD as env vars (Railway Variables tab)
+        or in a local .env file. The password is written to ~/.pgpass at
+        connect time so wrds.Connection() can auth non-interactively.
+      - Alternatively, maintain ~/.pgpass yourself and set only WRDS_USERNAME.
     """
 
     def __init__(self):
@@ -35,8 +59,11 @@ class CRSPSource(DataSource):
             if not username:
                 raise ValueError(
                     "WRDS_USERNAME not found in environment. "
-                    "Set it in your .env file."
+                    "Set it in your .env file or Railway Variables."
                 )
+            password = os.getenv("WRDS_PASSWORD")
+            if password:
+                _ensure_pgpass(username, password)
             self._conn = wrds.Connection(wrds_username=username)
         return self._conn
 
