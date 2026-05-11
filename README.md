@@ -23,10 +23,16 @@ Given a basket of tickers and a date range, the pipeline:
 
 ### Extensions
 
-- **HMM regime gating** — Gaussian HMM on market features; gates entries by
-  posterior probability of the favorable regime.
-- **Vol targeting** — scales position sizing by realized volatility.
-- **Almgren-Chriss** — optimal execution cost model.
+- **HMM regime gating** — 2-state Gaussian HMM fit on the rolling level and
+  stability of cross-sectional residual volatility; skips new entries when
+  the posterior probability of the favorable (mean-reverting) regime falls
+  below a configurable threshold.
+- **Vol targeting** — vol-parity position sizing using each name's OU
+  equilibrium volatility (σ_eq), with a floor/cap to prevent degenerate
+  notionals.
+- **Almgren–Chriss** — optimal execution cost model. *Implemented in
+  [statarb/extensions/almgren_chriss.py](statarb/extensions/almgren_chriss.py)
+  but not yet wired into the backtest engine.*
 
 ## Quick start
 
@@ -70,6 +76,8 @@ frontend from the same origin.
 |---|---|
 | `GET /api/health` | Liveness check |
 | `GET /api/config/defaults` | Default tickers, data sources, model list |
+| `GET /api/cache` | List backtest cache entries (size, mtime) |
+| `DELETE /api/cache` | Clear the backtest cache |
 | `POST /api/backtest` | Run a backtest, return metrics + curves |
 | `POST /api/backtest/stream` | Same, as Server-Sent Events with progress |
 | `POST /api/cointegration` | Engle–Granger cointegration scan |
@@ -84,7 +92,7 @@ app/             Legacy Streamlit UI
 statarb/
   data/          yfinance + CRSP data sources, sector mapping
   factors/       PCA, ETF, combined, pairs trading factor models
-  signals/       OU estimator, s-score, cointegration, volume-time
+  signals/       OU estimator, s-score, cointegration, volume-time, eligibility filters
   backtest/      Engine, portfolio, costs, metrics
   extensions/    HMM regime, vol targeting, Almgren-Chriss
 config.py        Centralized config + ticker universes
@@ -98,10 +106,14 @@ tests/           Unit tests
 - **CRSP via WRDS** — set `WRDS_USERNAME` env var; requires WRDS subscription.
   Necessary for the full 1997–2007 paper-replication universe (delisted names).
 
-Three preset universes in `config.py`:
-- `DEFAULT_TICKERS` — 40 modern S&P names across 8 sectors.
-- `PAPER_TICKERS` — ~1,000 names approximating the Avellaneda–Lee universe.
-- `MODERN_TICKERS` — post-2007 large-caps.
+Preset universes in `config.py`:
+- `PAPER_TICKERS` — 725 names approximating the Avellaneda–Lee 1997–2007
+  CRSP universe (S&P 500 survivors + large-cap delisted names like Lehman,
+  Bear Stearns, Compaq, Sun, WaMu).
+- `DEFAULT_TICKERS` — currently aliased to `PAPER_TICKERS`
+  ([config.py:202](config.py#L202)).
+- `MODERN_TICKERS` — 699 modern large-caps spanning megacap tech, banks,
+  industrials, and recent IPOs (ABNB, COIN, PLTR, etc.).
 
 ## Tech stack
 
