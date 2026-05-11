@@ -580,7 +580,7 @@ SIC3_TO_ETF_OVERRIDES: Dict[int, str] = {
     806: "XLV", 807: "XLV", 809: "XLV",
 }
 
-DATA_SOURCES = ["yfinance", "crsp"]
+DATA_SOURCES = ["crsp", "yfinance"]
 
 
 @dataclass
