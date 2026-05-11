@@ -22,7 +22,8 @@ import pandas as pd
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 # Make the project root importable so `import config`, `import statarb` work
@@ -867,3 +868,28 @@ def grid_search(req: GridRequest):
         return response
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Static frontend (Railway / single-service deploy)
+# ─────────────────────────────────────────────────────────────────────────────
+_FRONTEND_DIST = Path(
+    os.getenv("STATARB_FRONTEND_DIST", Path(ROOT) / "frontend" / "dist")
+)
+if _FRONTEND_DIST.is_dir():
+    _ASSETS_DIR = _FRONTEND_DIST / "assets"
+    if _ASSETS_DIR.is_dir():
+        app.mount(
+            "/assets",
+            StaticFiles(directory=_ASSETS_DIR),
+            name="assets",
+        )
+
+    @app.get("/{full_path:path}")
+    def _spa_fallback(full_path: str):
+        if full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="Not Found")
+        candidate = _FRONTEND_DIST / full_path
+        if full_path and candidate.is_file():
+            return FileResponse(candidate)
+        return FileResponse(_FRONTEND_DIST / "index.html")
